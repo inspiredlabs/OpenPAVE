@@ -107,7 +107,7 @@ Suggested top-level structure:
 │  └─ setup and launch helpers
 └─ configs/
    └─ runtime configuration files
-
+```
 
 ## Typical use cases
 
