@@ -155,4 +155,9 @@ PAVE is best understood as:
 
 ## Status
 
+
+## Demo:
+Ver 1: 
+https://youtu.be/kRiXri0te0g?si=iOhW0d2SSSP6zT4V
+
 This project is currently an active PoC and experimentation framework. The scope, structure, and supported workflows may continue to evolve as new hardware targets, communication methods, and Physical AI scenarios are explored.
