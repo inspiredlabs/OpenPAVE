@@ -1,0 +1,9 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+.env
+.DS_Store
+logs/
+pw_profile_livevlm/
+ui/live-vlm-webui/.venv/

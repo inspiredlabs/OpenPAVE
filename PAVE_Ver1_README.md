@@ -1,25 +1,38 @@
 # PAVE Physical AI MVP (PuppyPi Remote Control)
 
-This repository contains a GitHub-ready MVP that connects **VLA/VLM inference results** to **ROS 2 robot control** on **PuppyPi** via a simple, reproducible pipeline:
+This repo is a GitHub-ready MVP that connects **VLA/VLM inference results** to **ROS 2 robot control** on **PuppyPi** using a simple, reproducible pipeline:
 
 **live-vlm-webui (Observability UI)** → **Intent Ingress (HTTP)** → **Intent File Bus** → **Control Daemon** → **ROS 2 commands** → **PuppyPi**
 
-## What’s in this repo
+## Repository layout
+
+- `ui/live-vlm-webui/` (**git submodule**)  
+  Observability UI for model/prompt iteration and performance monitoring.  
+  Fork: `https://github.com/odincodeshen/live-vlm-webui/`
 
 - `intent-ingress/`  
-  A tiny HTTP service (`/intent`, default port **7071**) that maps `STOP/TROT/...` into a JSON intent and writes it atomically to `/tmp/vla_intent.json`.
+  Tiny HTTP service (`/intent`, default port **7071**) mapping `STOP/TROT/...` into JSON and writing atomically to `/tmp/vla_intent.json`.
 
 - `control-daemon/`  
-  A minimal control daemon that watches `/tmp/vla_intent.json` (mtime de-dupe) and emits ROS 2 commands (via dockerized ROS2 CLI) to the robot.
+  Watches `/tmp/vla_intent.json` (mtime de-dupe) and emits ROS 2 commands (dockerized ROS2 CLI) to the robot.
 
 - `docs/`  
-  Architecture and runbook documentation.
+  Architecture, runbook, and live-vlm-webui integration notes.
 
 - `scripts/`  
-  Start scripts for the DGX-side services.
+  Start scripts and helper commands.
 
-> Note: The **live-vlm-webui** codebase is typically kept as a separate repo (fork/submodule).  
-> This repo documents a small server-side hook you can apply to `server.py` to POST `STOP/TROT` into Intent Ingress.
+## Clone (with submodule)
+
+```bash
+git clone --recurse-submodules <YOUR_MAIN_REPO_URL>
+```
+
+If you already cloned without submodules:
+
+```bash
+git submodule update --init --recursive
+```
 
 ## Quick start (DGX)
 
@@ -49,11 +62,21 @@ cd control-daemon
 python3 pave_control_daemon_mvp.py
 ```
 
-### 3) Manual test (writes to file bus)
+### 3) Start live-vlm-webui (Observability UI)
 ```bash
-curl -s -X POST http://127.0.0.1:7071/intent   -H 'Content-Type: application/json'   -d '{"text":"TROT"}'
+cd ui/live-vlm-webui
+# follow upstream/fork instructions to start the webui + vLLM backend
+```
 
-curl -s -X POST http://127.0.0.1:7071/intent   -H 'Content-Type: application/json'   -d '{"text":"STOP"}'
+### 4) Manual end-to-end test (writes to file bus)
+```bash
+curl -s -X POST http://127.0.0.1:7071/intent \
+  -H 'Content-Type: application/json' \
+  -d '{"text":"TROT"}'
+
+curl -s -X POST http://127.0.0.1:7071/intent \
+  -H 'Content-Type: application/json' \
+  -d '{"text":"STOP"}'
 ```
 
 ## Quick start (PuppyPi)
@@ -67,14 +90,14 @@ ros2 launch puppy_control puppy_control.launch.py
 ```
 
 ## Documentation
-- `docs/architecture.md` — system architecture (roles, flow, interfaces)
-- `docs/runbook.md` — stable runbook / troubleshooting (FastDDS RTPS issue etc.)
-- `docs/live-vlm-webui_hook.md` — minimal server-side hook to forward STOP/TROT to ingress
+- `docs/architecture.md`
+- `docs/runbook.md`
+- `docs/live-vlm-webui_hook.md`
 
 ## Status (MVP)
 - ✅ STOP/TROT working end-to-end
 - ✅ TURN (yaw) working through `/puppy_control/velocity_move` (platform-dependent)
-- ⚠️ Straight walking (vx) is still **debug** (controller/firmware dependent)
+- ⚠️ Straight walking (vx) is still debug / platform-dependent
 
 ## License
-Choose a license appropriate for your distribution (MIT/Apache-2.0 recommended). A placeholder is provided in `LICENSE`.
+MIT (see `LICENSE`)
