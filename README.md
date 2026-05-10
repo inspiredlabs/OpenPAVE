@@ -15,8 +15,8 @@ This project is intended for developers, hobbyists, and small teams who want to 
 - Uses standard ROS2 communication between the robot and the edge server for interoperability and extensibility
 - Uses prompt-driven task customisation to explore how general-purpose VLMs can adapt to robotics workflows
 - Split the system cleanly into two roles:
-* VLA Observability UI: Enables users to easily switch between models, try different prompts, and monitor both inference outputs and performance metrics—speeding up debugging and validation.
-* VLA Control Daemon: Translates VLA/VLM outputs into executable ROS 2 commands to reliably control the PuppyPi robot dog, and serves as a deployable, reusable control core.
+   - VLA Observability UI: Enables users to easily switch between models, try different prompts, and monitor both inference outputs and performance metrics—speeding up debugging and validation.
+   - VLA Control Daemon: Translates VLA/VLM outputs into executable ROS 2 commands to reliably control the PuppyPi robot dog, and serves as a deployable, reusable control core.
 
 ## What this project is
 
