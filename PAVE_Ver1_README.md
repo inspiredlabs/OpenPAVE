@@ -1,4 +1,4 @@
-# PAVE Physical AI MVP (PuppyPi Remote Control)
+# PAVE Physical AI MVP (PuppyPi Remote Control) Version #1
 
 This repo is a GitHub-ready MVP that connects **VLA/VLM inference results** to **ROS 2 robot control** on **PuppyPi** using a simple, reproducible pipeline:
 
