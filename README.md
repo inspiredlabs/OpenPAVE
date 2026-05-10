@@ -160,7 +160,11 @@ PAVE is best understood as:
 
 
 ## Demo:
-Ver 1: 
+Ver 0.9:
+Real-time VLA on DGX Spark: RPi Quadruped with LLaVA-7B
 https://youtu.be/kRiXri0te0g?si=iOhW0d2SSSP6zT4V
+
+Ver 1.0:
+
 
 This project is currently an active PoC and experimentation framework. The scope, structure, and supported workflows may continue to evolve as new hardware targets, communication methods, and Physical AI scenarios are explored.
