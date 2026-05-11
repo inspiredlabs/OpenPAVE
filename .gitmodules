@@ -1,0 +1,3 @@
+[submodule "ui/live-vlm-webui"]
+	path = ui/live-vlm-webui
+	url = https://github.com/odincodeshen/live-vlm-webui
