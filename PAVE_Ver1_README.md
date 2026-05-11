@@ -12,6 +12,46 @@ PAVE Ver1 is a **lightweight, reproducible Physical-AI MVP** that demonstrates a
 
 **live-vlm-webui (Observability UI)** → **Intent Ingress (HTTP)** → **Intent File Bus** → **Control Daemon** → **ROS 2 commands** → **PuppyPi**
 
+┌──────────────────────────────────────────────────────────────────────────────┐
+│                         PAVE Ver1 — MVP Data Path                            │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+   (RTSP / Camera Stream)
+           │
+           ▼
+┌───────────────────────────────┐
+│ live-vlm-webui                │
+│ Observability UI / Debug UI   │
+│ - select model / prompt       │
+│ - shows inference output      │
+│ - server-side hook emits      │
+│   STOP/TROT                   │
+└───────────────┬───────────────┘
+                │  HTTP POST /intent  (e.g. { "text": "STOP" })
+                ▼
+┌───────────────────────────────┐
+│ Intent Ingress (HTTP :7071)   │
+│ - validate / map text→intent  │
+│ - atomic write                │
+└───────────────┬───────────────┘
+                │  Intent File Bus
+                │  /tmp/vla_intent.json
+                ▼
+┌───────────────────────────────┐
+│ Control Daemon (DGX)          │
+│ - watch file mtime            │
+│ - intent → ROS 2 commands     │
+│ - calls ros2 via docker       │
+└───────────────┬───────────────┘
+                │  ROS 2 (DDS multicast, same LAN)
+                ▼
+┌───────────────────────────────┐
+│ PuppyPi (Robot)               │
+│ - puppy_control.launch.py     │
+│ - executes motion             │
+└───────────────────────────────┘
+
+
 In Ver1, we validate that a VLM can output a small, stable “intent” (e.g., `STOP` / `TROT`) and reliably drive a physical robot via ROS 2.
 ---
 
@@ -41,7 +81,7 @@ This repo contains all Ver1 components:
 ## 2) Clone
 
 ```bash
-git clone https://github.com/odincodeshen/PAVE.git
+git clone --recurse-submodules https://github.com/odincodeshen/PAVE.git
 cd PAVE
 ```
 
@@ -229,7 +269,11 @@ python3 -m venv .venv
 source .venv/bin/activate
 
 pip install -U pip
-pip install -r requirements.txt
+# If requirements.txt exists:
+if [ -f requirements.txt ]; then
+  pip install -r requirements.txt
+fi
+# Editable install (pyproject.toml / setup.py)
 pip install -e .
 ```
 
@@ -271,7 +315,7 @@ Expected behavior:
 
 ---
 
-## 5) Manual End-to-End Test (Without WebUI)
+## 6) Manual End-to-End Test (Without WebUI)
 
 You can validate the control path even without VLM:
 ### TROT
@@ -389,10 +433,8 @@ Robot suddenly stops responding even though messages appear delivered.
 - Optionally:
 
   ```bash
-
   ros2 daemon stop || true
   ros2 daemon start
-
   ```
 
 ---
