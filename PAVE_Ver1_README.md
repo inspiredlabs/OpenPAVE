@@ -12,6 +12,7 @@ PAVE Ver1 is a **lightweight, reproducible Physical-AI MVP** that demonstrates a
 
 **live-vlm-webui (Observability UI)** → **Intent Ingress (HTTP)** → **Intent File Bus** → **Control Daemon** → **ROS 2 commands** → **PuppyPi**
 
+```text
 ┌──────────────────────────────────────────────────────────────────────────────┐
 │                         PAVE Ver1 — MVP Data Path                            │
 └──────────────────────────────────────────────────────────────────────────────┘
@@ -50,7 +51,7 @@ PAVE Ver1 is a **lightweight, reproducible Physical-AI MVP** that demonstrates a
 │ - puppy_control.launch.py     │
 │ - executes motion             │
 └───────────────────────────────┘
-
+```
 
 In Ver1, we validate that a VLM can output a small, stable “intent” (e.g., `STOP` / `TROT`) and reliably drive a physical robot via ROS 2.
 ---
