@@ -46,7 +46,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /ws
 COPY src/ /ws/src/
-RUN . /opt/ros/humble/setup.bash && colcon build --symlink-install
+RUN bash -lc "source /opt/ros/humble/setup.bash && colcon build --symlink-install"
 EOF
 
 echo "[INFO] Building docker image..."
