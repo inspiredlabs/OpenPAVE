@@ -402,7 +402,7 @@ To maximize downstream reliability, force a single-token intent output:
 
 ---
 
-## 7) Current MVP Status (Ver1)
+## 9) Current MVP Status (Ver1)
 
 ✅ Working:
 
@@ -410,14 +410,60 @@ To maximize downstream reliability, force a single-token intent output:
 - Remote control via DGX using ROS 2 over LAN
 - WebUI server-side hook → ingress integration
 
+
+Mini step:
+1. Launch puppypi
+   ```bash
+   docker start puppypi_ros2
+   docker exec -it -u ubuntu -w /home/ubuntu puppypi_ros2 /bin/zsh
+   ```
+   Inside container
+   
+   ```bash
+   export ROS_DOMAIN_ID=0
+   export RMW_IMPLEMENTATION=rmw_fastrtps_cpp
+   source /opt/ros/humble/setup.bash
+   ros2 launch puppy_control puppy_control.launch.py
+   ```
+   
+2. VLA side #1
+   ```bash
+   vllm serve llava-hf/llava-v1.6-mistral-7b-hf --port 8000 --dtype auto
+   ```
+   
+3. VLA side #2
+   ```bash
+   cd control-daemon/
+   source .venv/bin/activate
+   python3 pave_control_daemon_mvp.py
+   ```
+   
+4. VLA side #3
+   ```bash
+   cd ui/
+   live-vlm-webui --model llava-hf/llava-v1.6-mistral-7b-hf --api-base http://localhost:8000/v1
+   ```
+   
+   if can't find live-vlm-webui
+   ```bash
+   python3 -m pip install -e . // if can't find live-vlm-webui
+   ```
+
+5. Open brower:
+   Select PuppyPi IP.
+   Confirm the APi port and model selection.
+
 ⚠️ Known limitations:
 - Straight walking (`vx`) remains debug / platform-dependent
 - Turning via `velocity_move yaw` can be unstable at high yaw values
 - FastDDS can occasionally enter a bad state (see runbook)
 
+
+
+
 ---
 
-## 8) Runbook (Most Common Failure)
+## 10) Runbook (Most Common Failure)
 
 ### Symptom
 
