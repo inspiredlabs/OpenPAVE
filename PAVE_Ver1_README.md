@@ -217,29 +217,38 @@ vllm serve llava-hf/llava-v1.6-mistral-7b-hf --port 8000 --dtype auto
 
 ### Step 6 — Start live-vlm-webui (Observability UI) and forward STOP/TROT to Ingress
 
-The WebUI in `ui/live-vlm-webui` includes a **server-side intent hook** that POSTs `STOP/TROT` to Intent Ingress.
+This repo vendors an updated WebUI under:
+- `ui/live-vlm-webui`
 
-Set the endpoint (DGX):
-
-
-On DGX:
+It includes a **server-side intent hook** that POSTs `STOP/TROT` to Intent Ingress.
+#### A) Create a Python venv and install dependencies
 
 ```bash
 cd ui/live-vlm-webui
+python3 -m venv .venv
+source .venv/bin/activate
 
-// live-vlm installation
-
+pip install -U pip
+pip install -r requirements.txt
+pip install -e .
 ```
 
-**Important:** this updated WebUI includes a server-side hook that POSTs intents to ingress.
+If you see missing packages at runtime, install them into the same venv.
 
-Ensure the env is set:
+
+#### B) Set Intent Ingress endpoint (required)
 
 ```bash
 export INTENT_INGRESS_URL="http://127.0.0.1:7071/intent"
 ```
 
-Then start the WebUI using your existing method (pip/python entrypoint).
+#### C) Start the WebUI server
+
+```bash
+python3 -m live_vlm_webui.server
+```
+
+Try one of the following (depending on how this WebUI is packaged):
 
 **Expected behavior:**
 
@@ -247,6 +256,18 @@ Then start the WebUI using your existing method (pip/python entrypoint).
 - `intent_ingress.py` logs: `POST /intent 200`
 - `/tmp/vla_intent.json` updates
 - Control daemon triggers robot motion
+
+#### D) Open the WebUI
+
+By default, open:
+* https://<DGX_IP>:8090/ (or the host/port printed by the server)
+
+Expected behavior:
+
+* WebUI displays inference output (STOP / TROT)
+* intent_ingress.py prints POST /intent 200
+* /tmp/vla_intent.json updates
+* Control daemon triggers robot motion
 
 ---
 
