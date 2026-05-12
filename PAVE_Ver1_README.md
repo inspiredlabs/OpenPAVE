@@ -265,11 +265,11 @@ It includes a **server-side intent hook** that POSTs `STOP/TROT` to Intent Ingre
 #### A) Create a Python venv and install dependencies
 
 ```bash
-cd ui/live-vlm-webui
+cd ui
 python3 -m venv .venv
 source .venv/bin/activate
 
-pip install -U pip
+pip install -U pip requests
 # If requirements.txt exists:
 if [ -f requirements.txt ]; then
   pip install -r requirements.txt
@@ -450,8 +450,9 @@ Mini step:
    ```
 
 5. Open brower:
-   Select PuppyPi IP.
-   Confirm the APi port and model selection.
+   a. Select PuppyPi IP.
+   b. Confirm the APi port and model selection.
+   c. Select correct video source. For example: http://192.168.0.8:8080/stream?topic=/usb_cam/image_raw
 
 ⚠️ Known limitations:
 - Straight walking (`vx`) remains debug / platform-dependent
