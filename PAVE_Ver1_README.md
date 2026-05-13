@@ -259,7 +259,7 @@ vllm serve llava-hf/llava-v1.6-mistral-7b-hf --port 8000 --dtype auto
 ### Step 6 — Start live-vlm-webui (Observability UI) and forward STOP/TROT to Ingress
 
 This repo vendors an updated WebUI under:
-- `ui/live-vlm-webui`
+- `ui`
 
 It includes a **server-side intent hook** that POSTs `STOP/TROT` to Intent Ingress.
 #### A) Create a Python venv and install dependencies
