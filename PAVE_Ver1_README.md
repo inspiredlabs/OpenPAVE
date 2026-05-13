@@ -290,7 +290,7 @@ export INTENT_INGRESS_URL="http://127.0.0.1:7071/intent"
 #### C) Start the WebUI server
 
 ```bash
-python3 -m live_vlm_webui.server
+live-vlm-webui
 ```
 
 Try one of the following (depending on how this WebUI is packaged):
