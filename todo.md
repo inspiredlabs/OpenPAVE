@@ -20,15 +20,15 @@ Move PAVE from a working demo pipeline toward a repeatable Physical AI experimen
 
 ### Stage 1A: Intent Schema v0.1
 
-- [ ] Define a versioned intent schema document.
-- [ ] Specify supported intent types, including `STOP`, `TROT`, `MOVE`, and `HOME`.
-- [ ] Define required and optional fields.
-- [ ] Add metadata fields such as source, timestamp, confidence, schema version, and request ID.
-- [ ] Define validation rules for numeric parameters such as velocity, yaw, and duration.
-- [ ] Add a shared Python intent model or schema helper used by both `intent-ingress` and `control-daemon`.
-- [ ] Update `intent-ingress` to validate requests against the schema.
-- [ ] Update the control daemon to consume the normalized schema instead of ad hoc JSON.
-- [ ] Add examples for valid and invalid intent payloads.
+- [x] Define a versioned intent schema document.
+- [x] Specify supported intent types, including `STOP`, `TROT`, `MOVE`, and `HOME`.
+- [x] Define required and optional fields.
+- [x] Add metadata fields such as source, timestamp, confidence, schema version, and request ID.
+- [x] Define validation rules for numeric parameters such as velocity, yaw, and duration.
+- [x] Add a shared Python intent model or schema helper used by both `intent-ingress` and `control-daemon`.
+- [x] Update `intent-ingress` to validate requests against the schema.
+- [x] Update the control daemon to consume the normalized schema instead of ad hoc JSON.
+- [x] Add examples for valid and invalid intent payloads.
 
 ### Stage 1B: Robot Adapter Interface
 

@@ -18,7 +18,8 @@ How to use
    - python3 vla_control_daemon_mvp.py
 
 3) Write intents into the intent file (default: /tmp/vla_intent.json).
-   Examples (write ONE JSON object each time):
+   Examples (write ONE JSON object each time). Legacy flat payloads are still
+   accepted and normalized to intent schema v0.1 internally:
 
    Forward (currently debug / may behave like in-place stepping depending on firmware/controller):
      {"intent":"MOVE","vx":0.1,"yaw":0.0,"duration_ms":800}
@@ -32,6 +33,9 @@ How to use
    Stop + reset posture (STOP triggers a go_home reset in this build):
      {"intent":"STOP"}
 
+   Normalized schema v0.1:
+     {"schema_version":"0.1","intent":"MOVE","params":{"vx":0.0,"yaw":0.6,"duration_ms":600},"source":"manual","request_id":"demo","timestamp":"2026-05-16T00:00:00+00:00"}
+
 Notes
 - Turning is implemented via /puppy_control/velocity_move (yaw_rate).
 - Straight walking (vx) is still under debugging on this platform; different PuppyPi
@@ -40,9 +44,21 @@ Notes
 
 import json
 import os
-import time
 import subprocess
-from datetime import datetime, timezone
+import sys
+import time
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from pave_runtime.intent_schema import (
+    IntentValidationError,
+    intent_action_key,
+    normalize_intent_payload,
+    now_iso,
+)
 
 INTENT_PATH = os.environ.get("INTENT_PATH", "/tmp/vla_intent.json")
 POLL_SEC = float(os.environ.get("POLL_SEC", "0.2"))
@@ -56,12 +72,6 @@ ROS_SVC_IMAGE = os.environ.get("ROS_SVC_IMAGE", "ros:humble")
 # For publishing puppy_control_msgs/msg/Velocity we need an image that contains puppy_control_msgs
 # e.g. your built image: puppy-ros2-cli:humble
 ROS_PUB_IMAGE = os.environ.get("ROS_PUB_IMAGE", "puppy-ros2-cli:humble")
-
-ALLOW = {"STOP", "TROT", "HOME", "MOVE"}
-DEFAULT_INTENT = "STOP"
-
-def now_iso():
-    return datetime.now(timezone.utc).isoformat()
 
 def sh(cmd: str) -> int:
     """Run shell command inside bash -lc."""
@@ -151,25 +161,34 @@ def main():
                 time.sleep(POLL_SEC)
                 continue
 
-            intent = str(evt.get("intent", "")).upper().strip()
-            if intent not in ALLOW:
-                intent = DEFAULT_INTENT
+            try:
+                normalized = normalize_intent_payload(
+                    evt,
+                    default_source="file-bus",
+                    safe_default=True,
+                )
+            except IntentValidationError as exc:
+                print(f"[{now_iso()}] WARN: invalid intent payload: {exc}")
+                time.sleep(POLL_SEC)
+                continue
 
             # Optional: simple per-action de-dupe (prevents repeated identical write spam)
-            action_key = (intent, evt.get("vx"), evt.get("yaw"), evt.get("duration_ms"))
+            action_key = intent_action_key(normalized)
             if action_key == last_action_key:
                 time.sleep(POLL_SEC)
                 continue
             last_action_key = action_key
 
+            intent = normalized["intent"]
             if intent == "TROT":
                 do_trot()
             elif intent == "HOME":
                 do_home()
             elif intent == "MOVE":
-                vx = float(evt.get("vx", 0.0))
-                yaw = float(evt.get("yaw", 0.0))
-                duration_ms = int(evt.get("duration_ms", 500))
+                params = normalized.get("params", {})
+                vx = float(params.get("vx", 0.0))
+                yaw = float(params.get("yaw", 0.0))
+                duration_ms = int(params.get("duration_ms", 500))
                 do_move(vx=vx, yaw=yaw, duration_ms=duration_ms)
             else:
                 do_stop()

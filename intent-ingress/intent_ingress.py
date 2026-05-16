@@ -1,14 +1,19 @@
 import json
 import os
-from datetime import datetime, timezone
+import sys
+from pathlib import Path
+
 from flask import Flask, request, jsonify
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from pave_runtime.intent_schema import IntentValidationError, normalize_intent_payload
 
 INTENT_PATH = os.environ.get("INTENT_PATH", "/tmp/vla_intent.json")
 
 app = Flask(__name__)
-
-def now_iso():
-    return datetime.now(timezone.utc).isoformat()
 
 def atomic_write(obj: dict):
     tmp = INTENT_PATH + ".tmp"
@@ -19,21 +24,10 @@ def atomic_write(obj: dict):
 @app.post("/intent")
 def intent():
     data = request.get_json(force=True, silent=True) or {}
-    text = (data.get("intent") or data.get("text") or "").strip().upper()
-
-    if text == "TROT":
-        payload = {"intent": "TROT"}
-    elif text == "STOP":
-        payload = {"intent": "STOP"}
-    elif text in ("TURN_LEFT", "LEFT"):
-        payload = {"intent":"MOVE","vx":0.0,"yaw":-0.4,"duration_ms":600}
-    elif text in ("TURN_RIGHT", "RIGHT"):
-        payload = {"intent":"MOVE","vx":0.0,"yaw":0.6,"duration_ms":600}
-    else:
-        payload = {"intent": "STOP"}  # safe default
-
-    payload["_ts"] = now_iso()
-    payload["_src"] = "webui"
+    try:
+        payload = normalize_intent_payload(data, default_source="webui", safe_default=True)
+    except IntentValidationError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
 
     atomic_write(payload)
     return jsonify({"ok": True, "written": payload})
