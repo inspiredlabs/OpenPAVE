@@ -97,6 +97,101 @@ python3 -B -m unittest discover
 
 The repo-level `.venv` is intended for local development across `intent-ingress`, `control-daemon`, shared runtime helpers, and tests. Module-level requirements files should remain available for service-specific runtime or future deployment packaging. As OpenPAVE grows, individual services may later get separate dependency sets or containers, but the current Stage 1 development workflow assumes a single shared virtual environment.
 
+## Stage 1 runtime
+
+The Stage 1 runtime still follows the Ver1 multi-terminal flow:
+
+```text
+Terminal 1: Intent Ingress
+Terminal 2: Control Daemon
+Terminal 3: manual intent test or WebUI output
+```
+
+Stage 1B adds a robot adapter boundary. The default adapter is `puppypi`, which preserves the existing PuppyPi ROS2 command behavior. For local development without Docker, ROS2, or robot hardware, use the `mock` adapter.
+
+### Terminal 1: Intent Ingress
+
+```bash
+cd /path/to/OpenPAVE
+source .venv/bin/activate
+python3 intent-ingress/intent_ingress.py
+```
+
+Health check:
+
+```bash
+curl -s http://127.0.0.1:7071/healthz
+```
+
+### Terminal 2A: Control Daemon with PuppyPi
+
+Use this mode for the physical PuppyPi robot path:
+
+```bash
+cd /path/to/OpenPAVE
+source .venv/bin/activate
+
+export ROS_DOMAIN_ID=0
+export RMW_IMPLEMENTATION=rmw_fastrtps_cpp
+export ROBOT_ADAPTER=puppypi
+export ROS_SVC_IMAGE=ros:humble
+export ROS_PUB_IMAGE=puppy-ros2-cli:humble
+
+python3 control-daemon/pave_control_daemon_mvp.py
+```
+
+`ROBOT_ADAPTER=puppypi` is the default, but setting it explicitly makes the runtime path clear.
+
+### Terminal 2B: Control Daemon Dry Run
+
+Use this mode to validate the intent pipeline without robot hardware:
+
+```bash
+cd /path/to/OpenPAVE
+source .venv/bin/activate
+
+export ROBOT_ADAPTER=mock
+python3 control-daemon/pave_control_daemon_mvp.py
+```
+
+The mock adapter prints actions such as `MOCK ACTION=STOP` or `MOCK ACTION=MOVE` instead of calling Docker or ROS2.
+
+### Terminal 3: Manual Intent Test
+
+Send a simple text intent:
+
+```bash
+curl -s -X POST http://127.0.0.1:7071/intent \
+  -H 'Content-Type: application/json' \
+  -d '{"text":"TROT"}'
+```
+
+Stop:
+
+```bash
+curl -s -X POST http://127.0.0.1:7071/intent \
+  -H 'Content-Type: application/json' \
+  -d '{"text":"STOP"}'
+```
+
+Turn right through the text alias:
+
+```bash
+curl -s -X POST http://127.0.0.1:7071/intent \
+  -H 'Content-Type: application/json' \
+  -d '{"text":"RIGHT"}'
+```
+
+Send the normalized schema shape directly:
+
+```bash
+curl -s -X POST http://127.0.0.1:7071/intent \
+  -H 'Content-Type: application/json' \
+  -d '{"intent":"MOVE","params":{"vx":0.0,"yaw":0.6,"duration_ms":600},"source":"manual"}'
+```
+
+The intent written to `/tmp/vla_intent.json` is normalized to intent schema v0.1 before the control daemon dispatches it to the selected robot adapter.
+
 ## Why edge matters here
 
 Many PoCs can be demonstrated using cloud inference. OpenPAVE specifically focuses on edge-side execution because it is closer to how real-world robotics systems are often evaluated and deployed.
