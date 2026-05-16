@@ -43,14 +43,14 @@ Move PAVE from a working demo pipeline toward a repeatable Physical AI experimen
 
 ### Stage 1C: Robot State and Command Result Feedback
 
-- [ ] Define a robot state model.
-- [ ] Define command lifecycle states such as received, accepted, executing, completed, failed, and rejected.
-- [ ] Add command result output from the control daemon.
-- [ ] Record command execution status, return codes, timestamps, and failure reasons.
-- [ ] Add a state/result file, HTTP endpoint, ROS topic, or other lightweight feedback channel.
-- [ ] Include robot heartbeat or liveness tracking where possible.
-- [ ] Surface command result feedback in logs first.
-- [ ] Prepare the WebUI or observability layer to display command feedback later.
+- [x] Define a robot state model.
+- [x] Define command lifecycle states such as received, accepted, executing, completed, failed, and rejected.
+- [x] Add command result output from the control daemon.
+- [x] Record command execution status, return codes, timestamps, and failure reasons.
+- [x] Add a state/result file, HTTP endpoint, ROS topic, or other lightweight feedback channel.
+- [x] Include robot heartbeat or liveness tracking where possible.
+- [x] Surface command result feedback in logs first.
+- [x] Prepare the WebUI or observability layer to display command feedback later.
 
 ## Stage 2: Lightweight PAVE UI
 

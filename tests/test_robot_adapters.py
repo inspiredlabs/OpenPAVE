@@ -42,9 +42,11 @@ class RobotAdapterTests(unittest.TestCase):
         )
 
         with patch("control_daemon.adapters.time.sleep"), contextlib.redirect_stdout(io.StringIO()):
-            adapter.stop()
+            result = adapter.stop()
 
         self.assertEqual(len(commands), 3)
+        self.assertTrue(result.success)
+        self.assertEqual([step["return_code"] for step in result.steps], [0, 0, 0])
         self.assertIn("-e ROS_DOMAIN_ID=7", commands[0])
         self.assertIn("/puppy_control/set_mark_time", commands[0])
         self.assertIn("{data: false}", commands[0])
@@ -69,14 +71,46 @@ class RobotAdapterTests(unittest.TestCase):
         )
 
         with patch("control_daemon.adapters.time.sleep"), contextlib.redirect_stdout(io.StringIO()):
-            adapter.move(vx=0.0, yaw=0.6, duration_ms=600)
+            result = adapter.move(vx=0.0, yaw=0.6, duration_ms=600)
 
         self.assertEqual(len(commands), 4)
+        self.assertTrue(result.success)
+        self.assertEqual(result.steps[-1]["name"], "velocity_move")
         self.assertIn("/puppy_control/go_home", commands[0])
         self.assertIn("/puppy_control/set_mark_time", commands[1])
         self.assertIn("/puppy_control/set_running", commands[2])
         self.assertIn("/puppy_control/velocity_move", commands[3])
         self.assertIn("{x: 0.0, y: 0.0, yaw_rate: 0.6}", commands[3])
+
+    def test_puppypi_result_fails_when_step_fails(self):
+        def runner(cmd):
+            return 9 if "/puppy_control/velocity_move" in cmd else 0
+
+        adapter = PuppyPiAdapter(
+            config=RosCliConfig(
+                ros_domain_id="0",
+                rmw_implementation="rmw_fastrtps_cpp",
+                ros_svc_image="ros:humble",
+                ros_pub_image="puppy-ros2-cli:humble",
+            ),
+            runner=runner,
+        )
+
+        with patch("control_daemon.adapters.time.sleep"), contextlib.redirect_stdout(io.StringIO()):
+            result = adapter.move(vx=0.0, yaw=0.6, duration_ms=600)
+
+        self.assertFalse(result.success)
+        self.assertEqual(result.steps[-1]["return_code"], 9)
+        self.assertEqual(result.error, "one or more adapter steps failed")
+
+    def test_mock_adapter_returns_success_result(self):
+        adapter = MockAdapter()
+
+        with contextlib.redirect_stdout(io.StringIO()):
+            result = adapter.stop()
+
+        self.assertTrue(result.success)
+        self.assertEqual(result.steps, [{"name": "mock_stop", "return_code": 0}])
 
 
 if __name__ == "__main__":

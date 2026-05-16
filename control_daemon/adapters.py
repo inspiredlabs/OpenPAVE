@@ -14,21 +14,40 @@ from pave_runtime.intent_schema import now_iso
 CommandRunner = Callable[[str], int]
 
 
+@dataclass(frozen=True)
+class AdapterActionResult:
+    success: bool
+    steps: list[dict[str, object]]
+    error: str | None = None
+
+    @classmethod
+    def ok(cls, steps: list[dict[str, object]] | None = None) -> "AdapterActionResult":
+        return cls(success=True, steps=steps or [])
+
+    @classmethod
+    def failed(
+        cls,
+        error: str,
+        steps: list[dict[str, object]] | None = None,
+    ) -> "AdapterActionResult":
+        return cls(success=False, steps=steps or [], error=error)
+
+
 class RobotAdapter(Protocol):
     """Common robot capability interface consumed by the control daemon."""
 
     name: str
 
-    def stop(self) -> None:
+    def stop(self) -> AdapterActionResult:
         """Stop robot motion and return to a safe posture when supported."""
 
-    def trot(self) -> None:
+    def trot(self) -> AdapterActionResult:
         """Start the adapter's trot or mark-time behavior."""
 
-    def home(self) -> None:
+    def home(self) -> AdapterActionResult:
         """Return the robot to its home posture."""
 
-    def move(self, vx: float, yaw: float, duration_ms: int) -> None:
+    def move(self, vx: float, yaw: float, duration_ms: int) -> AdapterActionResult:
         """Run a short velocity-style movement command."""
 
 
@@ -65,6 +84,15 @@ class PuppyPiAdapter:
     def _run(self, cmd: str) -> int:
         return self.runner(cmd)
 
+    def _step(self, name: str, rc: int) -> dict[str, object]:
+        return {"name": name, "return_code": rc}
+
+    def _result(self, steps: list[dict[str, object]]) -> AdapterActionResult:
+        failed_steps = [step for step in steps if step.get("return_code") != 0]
+        if failed_steps:
+            return AdapterActionResult.failed("one or more adapter steps failed", steps)
+        return AdapterActionResult.ok(steps)
+
     def _ros2_service_call(self, service: str, srv_type: str, payload: str) -> int:
         cmd = (
             f"docker run --rm --net=host "
@@ -88,43 +116,95 @@ class PuppyPiAdapter:
         )
         return self._run(cmd)
 
-    def trot(self) -> None:
+    def trot(self) -> AdapterActionResult:
         print(f"[{now_iso()}] ACTION=TROT adapter={self.name}")
-        self._ros2_service_call("/puppy_control/set_running", "std_srvs/srv/SetBool", "{data: true}")
-        self._ros2_service_call(
-            "/puppy_control/set_mark_time",
-            "std_srvs/srv/SetBool",
-            "{data: true}",
-        )
+        steps = [
+            self._step(
+                "set_running:true",
+                self._ros2_service_call(
+                    "/puppy_control/set_running",
+                    "std_srvs/srv/SetBool",
+                    "{data: true}",
+                ),
+            ),
+            self._step(
+                "set_mark_time:true",
+                self._ros2_service_call(
+                    "/puppy_control/set_mark_time",
+                    "std_srvs/srv/SetBool",
+                    "{data: true}",
+                ),
+            ),
+        ]
+        return self._result(steps)
 
-    def stop(self) -> None:
+    def stop(self) -> AdapterActionResult:
         print(f"[{now_iso()}] ACTION=STOP adapter={self.name}")
-        self._ros2_service_call(
-            "/puppy_control/set_mark_time",
-            "std_srvs/srv/SetBool",
-            "{data: false}",
-        )
-        self._ros2_service_call("/puppy_control/set_running", "std_srvs/srv/SetBool", "{data: false}")
-        self._ros2_service_call("/puppy_control/go_home", "std_srvs/srv/Empty", "{}")
+        steps = [
+            self._step(
+                "set_mark_time:false",
+                self._ros2_service_call(
+                    "/puppy_control/set_mark_time",
+                    "std_srvs/srv/SetBool",
+                    "{data: false}",
+                ),
+            ),
+            self._step(
+                "set_running:false",
+                self._ros2_service_call(
+                    "/puppy_control/set_running",
+                    "std_srvs/srv/SetBool",
+                    "{data: false}",
+                ),
+            ),
+            self._step(
+                "go_home",
+                self._ros2_service_call("/puppy_control/go_home", "std_srvs/srv/Empty", "{}"),
+            ),
+        ]
         time.sleep(0.3)
+        return self._result(steps)
 
-    def home(self) -> None:
+    def home(self) -> AdapterActionResult:
         print(f"[{now_iso()}] ACTION=HOME adapter={self.name}")
-        self._ros2_service_call("/puppy_control/go_home", "std_srvs/srv/Empty", "{}")
+        steps = [
+            self._step(
+                "go_home",
+                self._ros2_service_call("/puppy_control/go_home", "std_srvs/srv/Empty", "{}"),
+            )
+        ]
+        return self._result(steps)
 
-    def move(self, vx: float, yaw: float, duration_ms: int) -> None:
+    def move(self, vx: float, yaw: float, duration_ms: int) -> AdapterActionResult:
         print(f"[{now_iso()}] ACTION=MOVE adapter={self.name} vx={vx} yaw={yaw} duration_ms={duration_ms}")
-        self._ros2_service_call("/puppy_control/go_home", "std_srvs/srv/Empty", "{}")
-        self._ros2_service_call(
-            "/puppy_control/set_mark_time",
-            "std_srvs/srv/SetBool",
-            "{data: false}",
-        )
-        self._ros2_service_call("/puppy_control/set_running", "std_srvs/srv/SetBool", "{data: true}")
+        steps = [
+            self._step(
+                "go_home",
+                self._ros2_service_call("/puppy_control/go_home", "std_srvs/srv/Empty", "{}"),
+            ),
+            self._step(
+                "set_mark_time:false",
+                self._ros2_service_call(
+                    "/puppy_control/set_mark_time",
+                    "std_srvs/srv/SetBool",
+                    "{data: false}",
+                ),
+            ),
+            self._step(
+                "set_running:true",
+                self._ros2_service_call(
+                    "/puppy_control/set_running",
+                    "std_srvs/srv/SetBool",
+                    "{data: true}",
+                ),
+            ),
+        ]
         time.sleep(0.3)
         rc = self._ros2_topic_pub_velocity_move(vx=vx, yaw=yaw)
+        steps.append(self._step("velocity_move", rc))
         if rc != 0:
             print(f"[{now_iso()}] WARN: velocity_move pub rc={rc}")
+        return self._result(steps)
 
 
 class MockAdapter:
@@ -132,17 +212,21 @@ class MockAdapter:
 
     name = "mock"
 
-    def stop(self) -> None:
+    def stop(self) -> AdapterActionResult:
         print(f"[{now_iso()}] MOCK ACTION=STOP")
+        return AdapterActionResult.ok([{"name": "mock_stop", "return_code": 0}])
 
-    def trot(self) -> None:
+    def trot(self) -> AdapterActionResult:
         print(f"[{now_iso()}] MOCK ACTION=TROT")
+        return AdapterActionResult.ok([{"name": "mock_trot", "return_code": 0}])
 
-    def home(self) -> None:
+    def home(self) -> AdapterActionResult:
         print(f"[{now_iso()}] MOCK ACTION=HOME")
+        return AdapterActionResult.ok([{"name": "mock_home", "return_code": 0}])
 
-    def move(self, vx: float, yaw: float, duration_ms: int) -> None:
+    def move(self, vx: float, yaw: float, duration_ms: int) -> AdapterActionResult:
         print(f"[{now_iso()}] MOCK ACTION=MOVE vx={vx} yaw={yaw} duration_ms={duration_ms}")
+        return AdapterActionResult.ok([{"name": "mock_move", "return_code": 0}])
 
 
 def create_robot_adapter(name: str | None = None) -> RobotAdapter:

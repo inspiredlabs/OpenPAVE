@@ -59,9 +59,12 @@ from pave_runtime.intent_schema import (
     now_iso,
 )
 from control_daemon.adapters import create_robot_adapter
+from control_daemon.feedback import atomic_write_json, command_result, robot_state
 
 INTENT_PATH = os.environ.get("INTENT_PATH", "/tmp/vla_intent.json")
 POLL_SEC = float(os.environ.get("POLL_SEC", "0.2"))
+COMMAND_RESULT_PATH = os.environ.get("COMMAND_RESULT_PATH", "/tmp/vla_command_result.json")
+ROBOT_STATE_PATH = os.environ.get("ROBOT_STATE_PATH", "/tmp/vla_robot_state.json")
 
 def load_intent():
     try:
@@ -76,11 +79,83 @@ def get_mtime(path: str):
     except Exception:
         return None
 
+def write_command_feedback(result: dict):
+    atomic_write_json(COMMAND_RESULT_PATH, result)
+    print(
+        f"[{now_iso()}] COMMAND status={result.get('status')} "
+        f"intent={result.get('intent')} request_id={result.get('request_id')}"
+    )
+
+def write_robot_state(status: str, adapter_name: str, last_command: dict | None = None):
+    atomic_write_json(
+        ROBOT_STATE_PATH,
+        robot_state(
+            adapter_name=adapter_name,
+            status=status,
+            last_command=last_command,
+        ),
+    )
+
+def execute_intent(normalized: dict, adapter):
+    started_at = now_iso()
+    executing = command_result(
+        intent=normalized,
+        adapter_name=adapter.name,
+        status="executing",
+        started_at=started_at,
+    )
+    write_command_feedback(executing)
+    write_robot_state("executing", adapter.name, executing)
+
+    try:
+        intent = normalized["intent"]
+        if intent == "TROT":
+            adapter_result = adapter.trot()
+        elif intent == "HOME":
+            adapter_result = adapter.home()
+        elif intent == "MOVE":
+            params = normalized.get("params", {})
+            vx = float(params.get("vx", 0.0))
+            yaw = float(params.get("yaw", 0.0))
+            duration_ms = int(params.get("duration_ms", 500))
+            adapter_result = adapter.move(vx=vx, yaw=yaw, duration_ms=duration_ms)
+        else:
+            adapter_result = adapter.stop()
+    except Exception as exc:
+        failed = command_result(
+            intent=normalized,
+            adapter_name=adapter.name,
+            status="failed",
+            started_at=started_at,
+            completed_at=now_iso(),
+            error=str(exc),
+        )
+        write_command_feedback(failed)
+        write_robot_state("error", adapter.name, failed)
+        return failed
+
+    status = "completed" if adapter_result.success else "failed"
+    result = command_result(
+        intent=normalized,
+        adapter_name=adapter.name,
+        status=status,
+        started_at=started_at,
+        completed_at=now_iso(),
+        steps=adapter_result.steps,
+        error=adapter_result.error,
+    )
+    write_command_feedback(result)
+    write_robot_state("idle" if adapter_result.success else "error", adapter.name, result)
+    return result
+
 def main():
     adapter = create_robot_adapter()
 
     print(f"[daemon] INTENT_PATH={INTENT_PATH} POLL_SEC={POLL_SEC}")
     print(f"[daemon] ROBOT_ADAPTER={adapter.name}")
+    print(f"[daemon] COMMAND_RESULT_PATH={COMMAND_RESULT_PATH}")
+    print(f"[daemon] ROBOT_STATE_PATH={ROBOT_STATE_PATH}")
+    write_robot_state("idle", adapter.name)
 
     last_mtime = None
     last_action_key = None  # de-dupe repeated identical actions
@@ -103,6 +178,15 @@ def main():
                 )
             except IntentValidationError as exc:
                 print(f"[{now_iso()}] WARN: invalid intent payload: {exc}")
+                rejected = command_result(
+                    intent=None,
+                    adapter_name=adapter.name,
+                    status="rejected",
+                    completed_at=now_iso(),
+                    error=str(exc),
+                )
+                write_command_feedback(rejected)
+                write_robot_state("idle", adapter.name, rejected)
                 time.sleep(POLL_SEC)
                 continue
 
@@ -113,19 +197,21 @@ def main():
                 continue
             last_action_key = action_key
 
-            intent = normalized["intent"]
-            if intent == "TROT":
-                adapter.trot()
-            elif intent == "HOME":
-                adapter.home()
-            elif intent == "MOVE":
-                params = normalized.get("params", {})
-                vx = float(params.get("vx", 0.0))
-                yaw = float(params.get("yaw", 0.0))
-                duration_ms = int(params.get("duration_ms", 500))
-                adapter.move(vx=vx, yaw=yaw, duration_ms=duration_ms)
-            else:
-                adapter.stop()
+            received = command_result(
+                intent=normalized,
+                adapter_name=adapter.name,
+                status="received",
+            )
+            write_command_feedback(received)
+            write_robot_state("received", adapter.name, received)
+            accepted = command_result(
+                intent=normalized,
+                adapter_name=adapter.name,
+                status="accepted",
+            )
+            write_command_feedback(accepted)
+            write_robot_state("accepted", adapter.name, accepted)
+            execute_intent(normalized, adapter)
 
         time.sleep(POLL_SEC)
 

@@ -136,6 +136,8 @@ export RMW_IMPLEMENTATION=rmw_fastrtps_cpp
 export ROBOT_ADAPTER=puppypi
 export ROS_SVC_IMAGE=ros:humble
 export ROS_PUB_IMAGE=puppy-ros2-cli:humble
+export COMMAND_RESULT_PATH=/tmp/vla_command_result.json
+export ROBOT_STATE_PATH=/tmp/vla_robot_state.json
 
 python3 control-daemon/pave_control_daemon_mvp.py
 ```
@@ -191,6 +193,15 @@ curl -s -X POST http://127.0.0.1:7071/intent \
 ```
 
 The intent written to `/tmp/vla_intent.json` is normalized to intent schema v0.1 before the control daemon dispatches it to the selected robot adapter.
+
+The control daemon also writes lightweight feedback files:
+
+```text
+/tmp/vla_command_result.json
+/tmp/vla_robot_state.json
+```
+
+These files expose the latest command lifecycle state, adapter result, return codes, robot status, and last command summary for Stage 2 UI and future benchmark tooling.
 
 ## Why edge matters here
 
