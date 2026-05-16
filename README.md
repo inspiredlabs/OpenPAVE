@@ -274,6 +274,7 @@ The repository root keeps only the main `README.md` as the entry point. Supporti
 │  ├─ robot_feedback.md
 │  ├─ runbook.md
 │  ├─ stage1.step.md
+│  ├─ stage2.step.md
 │  ├─ third_party_notices.md
 │  └─ todo.md
 ├─ control-daemon/
@@ -295,6 +296,7 @@ The repository root keeps only the main `README.md` as the entry point. Supporti
 - `docs/robot_feedback.md`: Robot state and command result feedback model used by Stage 1 and surfaced in Stage 2.
 - `docs/runbook.md`: Stable MVP runbook for operating the PuppyPi-side and control-side flow.
 - `docs/stage1.step.md`: End-to-end Stage 1 validation procedure for DGX/control machine plus PuppyPi.
+- `docs/stage2.step.md`: Stage 2 lightweight console installation and validation procedure.
 - `docs/third_party_notices.md`: Third-party component notices and attribution details.
 - `docs/todo.md`: Roadmap and staged execution checklist for current and upcoming OpenPAVE work.
 
