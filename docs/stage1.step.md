@@ -68,6 +68,13 @@ python3 -m pip install -U pip
 python3 -m pip install -r intent-ingress/requirements.txt
 ```
 
+If you also want to validate the WebUI/VLM path during Stage 1, install the UI dependencies in the same repo-level virtual environment:
+
+```bash
+python3 -m pip install -r ui/requirements.txt
+python3 -m pip install -e ui
+```
+
 Run tests:
 
 ```bash
@@ -146,7 +153,36 @@ If the image does not exist, build it:
 ./scripts/build_puppy_ros2_cli.sh
 ```
 
-## 3. Terminal 1: Start Intent Ingress
+## 3. Optional Terminal 0: Start a vLLM Backend
+
+This step is only required when validating Stage 1 through WebUI/VLM output. Manual `curl` tests do not require vLLM.
+
+Start vLLM in its own environment or container. Do not install vLLM into the OpenPAVE repo-level `.venv` unless that is your deployment choice.
+
+Example:
+
+```bash
+vllm serve <vision-language-model> \
+  --host 0.0.0.0 \
+  --port 8000
+```
+
+For older vLLM installs that do not provide `vllm serve`, use the OpenAI-compatible API server entry point:
+
+```bash
+python3 -m vllm.entrypoints.openai.api_server \
+  --host 0.0.0.0 \
+  --port 8000 \
+  --model <vision-language-model>
+```
+
+Verify the OpenAI-compatible endpoint:
+
+```bash
+curl -s http://127.0.0.1:8000/v1/models
+```
+
+## 4. Terminal 1: Start Intent Ingress
 
 On the DGX/control machine:
 
@@ -205,7 +241,7 @@ python3 intent-ingress/intent_ingress.py
 
 Do not use `flask run` for this validation flow.
 
-## 4. Terminal 2: Start the Control Daemon with PuppyPi
+## 5. Terminal 2: Start the Control Daemon with PuppyPi
 
 On the DGX/control machine:
 
@@ -236,7 +272,7 @@ Expected startup logs:
 [daemon] ROBOT_STATE_PATH=/tmp/vla_robot_state.json
 ```
 
-## 5. Optional: Clean Old Runtime Files
+## 6. Optional: Clean Old Runtime Files
 
 If the daemon is not running yet, clean old files:
 
@@ -246,7 +282,7 @@ rm -f /tmp/vla_intent.json /tmp/vla_command_result.json /tmp/vla_robot_state.jso
 
 If the daemon is already running, this is still safe, but the state file will be recreated on the next daemon update.
 
-## 6. Terminal 3: Test STOP
+## 7. Terminal 3: Test STOP
 
 ```bash
 curl -s -X POST http://127.0.0.1:7071/intent \
@@ -310,7 +346,7 @@ Expected fields:
 }
 ```
 
-## 7. Test TROT
+## 8. Test TROT
 
 ```bash
 curl -s -X POST http://127.0.0.1:7071/intent \
@@ -331,7 +367,7 @@ set_running:true
 set_mark_time:true
 ```
 
-## 8. Test RIGHT / MOVE
+## 9. Test RIGHT / MOVE
 
 Make sure the robot has enough safe space before running this command.
 
@@ -373,7 +409,7 @@ If the `velocity_move` step has a non-zero return code, check:
 - `puppy_control_msgs/msg/Velocity`
 - PuppyPi controller state
 
-## 9. Test Direct Schema Payload
+## 10. Test Direct Schema Payload
 
 ```bash
 curl -s -X POST http://127.0.0.1:7071/intent \
@@ -388,7 +424,7 @@ Expected:
 - `params.yaw` is `-0.4`
 - final command result is `completed`
 
-## 10. Test Invalid Payload
+## 11. Test Invalid Payload
 
 This should not control the robot.
 
@@ -409,7 +445,7 @@ Expected response:
 
 The invalid payload should not be written to `/tmp/vla_intent.json`.
 
-## 11. Test Unknown Text Safety Fallback
+## 12. Test Unknown Text Safety Fallback
 
 ```bash
 curl -s -X POST http://127.0.0.1:7071/intent \
@@ -429,7 +465,7 @@ Expected normalized intent:
 
 PuppyPi should stop or return home.
 
-## 12. Test Mock Adapter
+## 13. Test Mock Adapter
 
 Stop the PuppyPi control daemon and restart it in dry-run mode:
 
@@ -475,12 +511,13 @@ Expected command result:
 }
 ```
 
-## 13. Pass Criteria
+## 14. Pass Criteria
 
 Stage 1 validation passes when:
 
 - `python3 -B -m unittest discover` passes
 - Intent Ingress `/healthz` returns `ok`
+- optional WebUI/VLM validation has a reachable vLLM endpoint at `/v1/models`
 - `/intent` writes schema v0.1 to `/tmp/vla_intent.json`
 - Control daemon starts with `ROBOT_ADAPTER=puppypi`
 - `STOP`, `TROT`, and `RIGHT` run successfully
@@ -488,7 +525,7 @@ Stage 1 validation passes when:
 - `/tmp/vla_robot_state.json` returns to `status: idle`
 - `ROBOT_ADAPTER=mock` validates the pipeline without robot hardware
 
-## 14. Debug Files
+## 15. Debug Files
 
 When something fails, inspect these first:
 

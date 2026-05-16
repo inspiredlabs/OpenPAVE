@@ -108,6 +108,7 @@ source .venv/bin/activate
 python3 -m pip install -U pip
 python3 -m pip install -r intent-ingress/requirements.txt
 python3 -m pip install -r ui/requirements.txt
+python3 -m pip install -e ui
 ```
 
 If `python3.12` is not available, use a supported local Python:
@@ -117,6 +118,17 @@ python3 --version
 ```
 
 Avoid very new Python versions if UI dependencies such as `av` do not provide prebuilt wheels.
+
+Re-run the UI install commands after updating the `ui` submodule to a new commit or tag:
+
+```bash
+git submodule update --init --recursive
+source .venv/bin/activate
+python3 -m pip install -r ui/requirements.txt
+python3 -m pip install -e ui
+```
+
+`python3 -m pip install -e ui` installs the local `live-vlm-webui` package in editable mode, so the repo-level `.venv` uses the checked-out `ui` submodule code and package data.
 
 Run tests:
 
@@ -210,7 +222,42 @@ export ROBOT_STATE_PATH=/tmp/vla_robot_state.json
 python3 control-daemon/pave_control_daemon_mvp.py
 ```
 
-## 5. Terminal 3: Start the Stage 2 UI Server
+## 5. Terminal 3: Start a vLLM Backend
+
+Stage 2 can validate layout, WebSocket connectivity, metrics, and Stage 1 feedback without a running VLM backend. Start vLLM when you want to validate real VLM responses in the console.
+
+Start vLLM in its own environment or container. Do not install vLLM into the OpenPAVE repo-level `.venv` unless that is your deployment choice.
+
+Example:
+
+```bash
+vllm serve <vision-language-model> \
+  --host 0.0.0.0 \
+  --port 8000
+```
+
+For older vLLM installs that do not provide `vllm serve`, use the OpenAI-compatible API server entry point:
+
+```bash
+python3 -m vllm.entrypoints.openai.api_server \
+  --host 0.0.0.0 \
+  --port 8000 \
+  --model <vision-language-model>
+```
+
+Verify the OpenAI-compatible endpoint:
+
+```bash
+curl -s http://127.0.0.1:8000/v1/models
+```
+
+The Stage 2 UI server should use the matching API base:
+
+```text
+http://localhost:8000/v1
+```
+
+## 6. Terminal 4: Start the Stage 2 UI Server
 
 Start the existing `live-vlm-webui` backend from the OpenPAVE repo.
 
@@ -223,10 +270,22 @@ source .venv/bin/activate
 export COMMAND_RESULT_PATH=/tmp/vla_command_result.json
 export ROBOT_STATE_PATH=/tmp/vla_robot_state.json
 
+HOME=/tmp python3 -B -m live_vlm_webui.server \
+  --host 0.0.0.0 \
+  --port 8090 \
+  --model <vision-language-model> \
+  --api-base http://localhost:8000/v1 \
+  --api-key EMPTY \
+  --no-ssl
+```
+
+If you did not install the UI package with `python3 -m pip install -e ui`, use `PYTHONPATH=ui/src`:
+
+```bash
 HOME=/tmp PYTHONPATH=ui/src python3 -B -m live_vlm_webui.server \
   --host 0.0.0.0 \
   --port 8090 \
-  --model test-model \
+  --model <vision-language-model> \
   --api-base http://localhost:8000/v1 \
   --api-key EMPTY \
   --no-ssl
@@ -241,7 +300,7 @@ Access the server at:
   Local:   http://localhost:8090
 ```
 
-## 6. Open the Stage 2 Console
+## 7. Open the Stage 2 Console
 
 Open:
 
@@ -270,7 +329,7 @@ Expected Stage 2 console sections:
 - command result
 - robot state
 
-## 7. Verify Stage 2 HTTP Endpoints
+## 8. Verify Stage 2 HTTP Endpoints
 
 From another terminal:
 
@@ -303,7 +362,7 @@ Expected shape:
 
 If Stage 1 is running and has processed a command, `command_result` and `robot_state` should contain JSON objects instead of `null`.
 
-## 8. Verify Runtime Feedback in the Console
+## 9. Verify Runtime Feedback in the Console
 
 Send a command through Intent Ingress:
 
@@ -339,7 +398,7 @@ Expected robot state fields:
 
 In the `/pave` console, the Command Result and Robot State panels should update within about one second.
 
-## 9. Verify Prompt and VLM UI Wiring
+## 10. Verify Prompt and VLM UI Wiring
 
 In the `/pave` console:
 
@@ -351,7 +410,7 @@ In the `/pave` console:
 
 If no VLM backend is running at `--api-base`, the page can still validate layout, WebSocket connectivity, metrics, and Stage 1 feedback.
 
-## 10. Pass Criteria
+## 11. Pass Criteria
 
 Stage 2 validation passes when:
 
@@ -360,12 +419,13 @@ Stage 2 validation passes when:
 - `/pave` returns HTTP 200
 - `/api/pave/runtime` returns HTTP 200
 - the original `/` Live VLM UI still returns HTTP 200
+- vLLM is reachable at `/v1/models` when validating real VLM inference
 - the `/pave` console shows live stream controls and compact metrics panels
 - the prompt can be updated through the existing WebSocket path
 - Stage 1 command result and robot state feedback appear in the console
 - the UI uses the existing video backend rather than a new stream pipeline
 
-## 11. Debug Checklist
+## 12. Debug Checklist
 
 If `/pave` does not open:
 
@@ -393,7 +453,20 @@ If the UI server fails to import dependencies:
 ```bash
 source .venv/bin/activate
 python3 -m pip install -r ui/requirements.txt
+python3 -m pip install -e ui
 ```
 
 If `av` or other UI dependencies fail to install, recreate `.venv` with Python 3.10 to 3.12.
 
+If VLM results do not appear:
+
+```bash
+curl -s http://127.0.0.1:8000/v1/models
+```
+
+Then check:
+
+- vLLM process logs
+- the model name passed to `--model`
+- the UI server `--api-base`
+- firewall or container port mapping for port `8000`

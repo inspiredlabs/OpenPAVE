@@ -88,6 +88,7 @@ source .venv/bin/activate
 python3 -m pip install -U pip
 python3 -m pip install -r intent-ingress/requirements.txt
 python3 -m pip install -r ui/requirements.txt
+python3 -m pip install -e ui
 ```
 
 Run the current Python tests from the repo root:
@@ -99,6 +100,13 @@ python3 -B -m unittest discover
 The repo-level `.venv` is intended for local development across `intent-ingress`, `control-daemon`, shared runtime helpers, tests, and the Stage 2 lightweight console. Module-level requirements files should remain available for service-specific runtime or future deployment packaging. As OpenPAVE grows, individual services may later get separate dependency sets or containers, but the current Stage 1 and Stage 2 development workflow assumes a single shared virtual environment.
 
 For the UI dependencies, prefer Python 3.10 to 3.12. Very new Python versions may not have prebuilt wheels for packages such as `av`.
+
+After updating the `ui` submodule to a new commit or tag, rerun the UI install commands so the repo-level `.venv` uses the current local `live-vlm-webui` code:
+
+```bash
+python3 -m pip install -r ui/requirements.txt
+python3 -m pip install -e ui
+```
 
 ## Stage 1 runtime
 
