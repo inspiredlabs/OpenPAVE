@@ -261,34 +261,61 @@ http://localhost:8000/v1
 
 Start the existing `live-vlm-webui` backend from the OpenPAVE repo.
 
-For HTTP local validation:
+For HTTP local validation with `llava-hf/llava-v1.6-mistral-7b-hf` served by vLLM at `http://localhost:8000/v1`:
 
 ```bash
 cd /path/to/OpenPAVE
 source .venv/bin/activate
 
+export INTENT_INGRESS_URL=http://127.0.0.1:7071/intent
 export COMMAND_RESULT_PATH=/tmp/vla_command_result.json
 export ROBOT_STATE_PATH=/tmp/vla_robot_state.json
 
 HOME=/tmp python3 -B -m live_vlm_webui.server \
   --host 0.0.0.0 \
   --port 8090 \
-  --model <vision-language-model> \
+  --model llava-hf/llava-v1.6-mistral-7b-hf \
   --api-base http://localhost:8000/v1 \
   --api-key EMPTY \
+  --robot-ip-address 192.168.0.8 \
   --no-ssl
 ```
+
+`INTENT_INGRESS_URL` is required for forwarding recognized `TROT` and `STOP` outputs into Intent Ingress. `COMMAND_RESULT_PATH` and `ROBOT_STATE_PATH` must match the paths used by the control daemon so the Stage 2 console can display runtime feedback.
 
 If you did not install the UI package with `python3 -m pip install -e ui`, use `PYTHONPATH=ui/src`:
 
 ```bash
+export INTENT_INGRESS_URL=http://127.0.0.1:7071/intent
+export COMMAND_RESULT_PATH=/tmp/vla_command_result.json
+export ROBOT_STATE_PATH=/tmp/vla_robot_state.json
+
 HOME=/tmp PYTHONPATH=ui/src python3 -B -m live_vlm_webui.server \
   --host 0.0.0.0 \
   --port 8090 \
-  --model <vision-language-model> \
+  --model llava-hf/llava-v1.6-mistral-7b-hf \
   --api-base http://localhost:8000/v1 \
   --api-key EMPTY \
+  --robot-ip-address 192.168.0.8 \
   --no-ssl
+```
+
+`--robot-ip-address` only replaces the robot host portion of the default stream URL. The console keeps the camera stream postfix:
+
+```text
+:8080/stream?topic=/usb_cam/image_raw
+```
+
+For example:
+
+```text
+--robot-ip-address 192.168.0.8
+```
+
+becomes:
+
+```text
+http://192.168.0.8:8080/stream?topic=/usb_cam/image_raw
 ```
 
 For webcam access from a browser, use HTTPS instead of `--no-ssl`. The upstream UI server can auto-generate local certificates when OpenSSL is available.
@@ -302,16 +329,28 @@ Access the server at:
 
 ## 7. Open the Stage 2 Console
 
-Open:
+The same server exposes two UI entry points.
+
+Open the original full `live-vlm-webui` at:
 
 ```text
-http://<host>:8090/pave
+http://127.0.0.1:8090/
 ```
 
-The original Live VLM UI remains available at:
+Use this page when you want the original full WebUI controls, including the upstream prompt preset menu.
+
+Open the lightweight OpenPAVE Stage 2 console at:
 
 ```text
-http://<host>:8090/
+http://127.0.0.1:8090/pave
+```
+
+Use this page for the OpenPAVE-focused view with live stream, compact system metrics, prompt/result panels, parsed intent, command result, and robot state.
+
+For access from another machine on the same network, replace `127.0.0.1` with the host IP printed by the server, for example:
+
+```text
+http://<host-ip>:8090/pave
 ```
 
 Expected Stage 2 console sections:
