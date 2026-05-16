@@ -32,14 +32,14 @@ Move PAVE from a working demo pipeline toward a repeatable Physical AI experimen
 
 ### Stage 1B: Robot Adapter Interface
 
-- [ ] Introduce a robot adapter interface for common robot capabilities.
-- [ ] Define capability methods such as `stop`, `trot`, `home`, and `move`.
-- [ ] Implement a `PuppyPiAdapter` as the first adapter.
-- [ ] Move PuppyPi-specific ROS 2 service and topic calls out of the control daemon core.
-- [ ] Keep the control daemon responsible for intent handling and adapter orchestration.
-- [ ] Make adapter selection configurable through environment variables or config files.
-- [ ] Add a simple mock or dry-run adapter for local testing without robot hardware.
-- [ ] Document how future robot adapters should be added.
+- [x] Introduce a robot adapter interface for common robot capabilities.
+- [x] Define capability methods such as `stop`, `trot`, `home`, and `move`.
+- [x] Implement a `PuppyPiAdapter` as the first adapter.
+- [x] Move PuppyPi-specific ROS 2 service and topic calls out of the control daemon core.
+- [x] Keep the control daemon responsible for intent handling and adapter orchestration.
+- [x] Make adapter selection configurable through environment variables or config files.
+- [x] Add a simple mock or dry-run adapter for local testing without robot hardware.
+- [x] Document how future robot adapters should be added.
 
 ### Stage 1C: Robot State and Command Result Feedback
 

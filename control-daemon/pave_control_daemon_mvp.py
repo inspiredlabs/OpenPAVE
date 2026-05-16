@@ -44,7 +44,6 @@ Notes
 
 import json
 import os
-import subprocess
 import sys
 import time
 from pathlib import Path
@@ -59,75 +58,10 @@ from pave_runtime.intent_schema import (
     normalize_intent_payload,
     now_iso,
 )
+from control_daemon.adapters import create_robot_adapter
 
 INTENT_PATH = os.environ.get("INTENT_PATH", "/tmp/vla_intent.json")
 POLL_SEC = float(os.environ.get("POLL_SEC", "0.2"))
-
-ROS_DOMAIN_ID = os.environ.get("ROS_DOMAIN_ID", "0")
-RMW = os.environ.get("RMW_IMPLEMENTATION", "rmw_fastrtps_cpp")
-
-# For ROS2 services (std_srvs) we can use plain ros:humble
-ROS_SVC_IMAGE = os.environ.get("ROS_SVC_IMAGE", "ros:humble")
-
-# For publishing puppy_control_msgs/msg/Velocity we need an image that contains puppy_control_msgs
-# e.g. your built image: puppy-ros2-cli:humble
-ROS_PUB_IMAGE = os.environ.get("ROS_PUB_IMAGE", "puppy-ros2-cli:humble")
-
-def sh(cmd: str) -> int:
-    """Run shell command inside bash -lc."""
-    p = subprocess.run(cmd, shell=True)
-    return p.returncode
-
-def ros2_service_call(service: str, srv_type: str, payload: str) -> int:
-    cmd = (
-        f"docker run --rm --net=host "
-        f"-e ROS_DOMAIN_ID={ROS_DOMAIN_ID} "
-        f"-e RMW_IMPLEMENTATION={RMW} "
-        f"{ROS_SVC_IMAGE} bash -lc "
-        f"\"source /opt/ros/humble/setup.bash && "
-        f"ros2 service call {service} {srv_type} '{payload}' >/dev/null 2>&1\""
-    )
-    return sh(cmd)
-
-def ros2_topic_pub_velocity_move(vx: float, yaw: float) -> int:
-    cmd = (
-        f"docker run --rm --net=host "
-        f"-e ROS_DOMAIN_ID={ROS_DOMAIN_ID} "
-        f"-e RMW_IMPLEMENTATION={RMW} "
-        f"{ROS_PUB_IMAGE} bash -lc "
-        f"\"source /opt/ros/humble/setup.bash && source /ws/install/setup.bash && "
-        f"ros2 topic pub -1 /puppy_control/velocity_move puppy_control_msgs/msg/Velocity "
-        f"'{{x: {vx}, y: 0.0, yaw_rate: {yaw}}}'\""
-    )
-    return sh(cmd)
-
-def do_trot():
-    print(f"[{now_iso()}] ACTION=TROT")
-    ros2_service_call("/puppy_control/set_running", "std_srvs/srv/SetBool", "{data: true}")
-    ros2_service_call("/puppy_control/set_mark_time", "std_srvs/srv/SetBool", "{data: true}")
-
-def do_stop():
-    print(f"[{now_iso()}] ACTION=STOP")
-    ros2_service_call("/puppy_control/set_mark_time", "std_srvs/srv/SetBool", "{data: false}")
-    ros2_service_call("/puppy_control/set_running", "std_srvs/srv/SetBool", "{data: false}")
-    # --- add reset to normal standing posture ---
-    ros2_service_call("/puppy_control/go_home", "std_srvs/srv/Empty", "{}")
-    time.sleep(0.3)
-
-def do_home():
-    print(f"[{now_iso()}] ACTION=HOME")
-    ros2_service_call("/puppy_control/go_home", "std_srvs/srv/Empty", "{}")
-
-def do_move(vx: float, yaw: float, duration_ms: int):
-    print(f"[{now_iso()}] ACTION=MOVE vx={vx} yaw={yaw} duration_ms={duration_ms}")
-    ros2_service_call("/puppy_control/go_home", "std_srvs/srv/Empty", "{}")
-    ros2_service_call("/puppy_control/set_mark_time", "std_srvs/srv/SetBool", "{data: false}")
-    ros2_service_call("/puppy_control/set_running", "std_srvs/srv/SetBool", "{data: true}")
-    time.sleep(0.3)  # give the robot a moment to stand stably
-    # ---------------------------------------------------------------
-    rc = ros2_topic_pub_velocity_move(vx=vx, yaw=yaw)
-    if rc != 0:
-        print(f"[{now_iso()}] WARN: velocity_move pub rc={rc}")
 
 def load_intent():
     try:
@@ -143,10 +77,10 @@ def get_mtime(path: str):
         return None
 
 def main():
+    adapter = create_robot_adapter()
+
     print(f"[daemon] INTENT_PATH={INTENT_PATH} POLL_SEC={POLL_SEC}")
-    print(f"[daemon] ROS_DOMAIN_ID={ROS_DOMAIN_ID} RMW={RMW}")
-    print(f"[daemon] ROS_SVC_IMAGE={ROS_SVC_IMAGE}")
-    print(f"[daemon] ROS_PUB_IMAGE={ROS_PUB_IMAGE}")
+    print(f"[daemon] ROBOT_ADAPTER={adapter.name}")
 
     last_mtime = None
     last_action_key = None  # de-dupe repeated identical actions
@@ -181,17 +115,17 @@ def main():
 
             intent = normalized["intent"]
             if intent == "TROT":
-                do_trot()
+                adapter.trot()
             elif intent == "HOME":
-                do_home()
+                adapter.home()
             elif intent == "MOVE":
                 params = normalized.get("params", {})
                 vx = float(params.get("vx", 0.0))
                 yaw = float(params.get("yaw", 0.0))
                 duration_ms = int(params.get("duration_ms", 500))
-                do_move(vx=vx, yaw=yaw, duration_ms=duration_ms)
+                adapter.move(vx=vx, yaw=yaw, duration_ms=duration_ms)
             else:
-                do_stop()
+                adapter.stop()
 
         time.sleep(POLL_SEC)
 

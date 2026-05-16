@@ -1,0 +1,83 @@
+import contextlib
+import io
+import os
+import unittest
+from unittest.mock import patch
+
+from control_daemon.adapters import MockAdapter, PuppyPiAdapter, RosCliConfig, create_robot_adapter
+
+
+class RobotAdapterTests(unittest.TestCase):
+    def test_create_mock_adapter_from_name(self):
+        adapter = create_robot_adapter("mock")
+
+        self.assertIsInstance(adapter, MockAdapter)
+        self.assertEqual(adapter.name, "mock")
+
+    def test_create_mock_adapter_from_env(self):
+        with patch.dict(os.environ, {"ROBOT_ADAPTER": "dry-run"}):
+            adapter = create_robot_adapter()
+
+        self.assertIsInstance(adapter, MockAdapter)
+
+    def test_unknown_adapter_raises(self):
+        with self.assertRaises(ValueError):
+            create_robot_adapter("unknown")
+
+    def test_puppypi_stop_generates_expected_ros_calls(self):
+        commands = []
+
+        def runner(cmd):
+            commands.append(cmd)
+            return 0
+
+        adapter = PuppyPiAdapter(
+            config=RosCliConfig(
+                ros_domain_id="7",
+                rmw_implementation="rmw_fastrtps_cpp",
+                ros_svc_image="ros:humble",
+                ros_pub_image="puppy-ros2-cli:humble",
+            ),
+            runner=runner,
+        )
+
+        with patch("control_daemon.adapters.time.sleep"), contextlib.redirect_stdout(io.StringIO()):
+            adapter.stop()
+
+        self.assertEqual(len(commands), 3)
+        self.assertIn("-e ROS_DOMAIN_ID=7", commands[0])
+        self.assertIn("/puppy_control/set_mark_time", commands[0])
+        self.assertIn("{data: false}", commands[0])
+        self.assertIn("/puppy_control/set_running", commands[1])
+        self.assertIn("/puppy_control/go_home", commands[2])
+
+    def test_puppypi_move_generates_velocity_publish(self):
+        commands = []
+
+        def runner(cmd):
+            commands.append(cmd)
+            return 0
+
+        adapter = PuppyPiAdapter(
+            config=RosCliConfig(
+                ros_domain_id="0",
+                rmw_implementation="rmw_fastrtps_cpp",
+                ros_svc_image="ros:humble",
+                ros_pub_image="puppy-ros2-cli:humble",
+            ),
+            runner=runner,
+        )
+
+        with patch("control_daemon.adapters.time.sleep"), contextlib.redirect_stdout(io.StringIO()):
+            adapter.move(vx=0.0, yaw=0.6, duration_ms=600)
+
+        self.assertEqual(len(commands), 4)
+        self.assertIn("/puppy_control/go_home", commands[0])
+        self.assertIn("/puppy_control/set_mark_time", commands[1])
+        self.assertIn("/puppy_control/set_running", commands[2])
+        self.assertIn("/puppy_control/velocity_move", commands[3])
+        self.assertIn("{x: 0.0, y: 0.0, yaw_rate: 0.6}", commands[3])
+
+
+if __name__ == "__main__":
+    unittest.main()
