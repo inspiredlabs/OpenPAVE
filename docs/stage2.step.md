@@ -85,7 +85,7 @@ git -C ui describe --tags --always
 Expected:
 
 ```text
-openpave-stage2-console-v0.1
+openpave-stage2-console
 ```
 
 If the tag is missing locally, fetch tags inside the submodule:
