@@ -48,7 +48,8 @@ Move PAVE from a working demo pipeline toward a repeatable Physical AI experimen
 - [x] Add command result output from the control daemon.
 - [x] Record command execution status, return codes, timestamps, and failure reasons.
 - [x] Add a state/result file, HTTP endpoint, ROS topic, or other lightweight feedback channel.
-- [x] Include robot heartbeat or liveness tracking where possible.
+- [x] Add basic daemon state updates for `idle`, `received`, `accepted`, `executing`, and `error`.
+- [ ] Add periodic robot heartbeat or liveness tracking when a reliable robot-side signal is available.
 - [x] Surface command result feedback in logs first.
 - [x] Prepare the WebUI or observability layer to display command feedback later.
 
@@ -56,38 +57,38 @@ Move PAVE from a working demo pipeline toward a repeatable Physical AI experimen
 
 ### Stage 2A: Lightweight UI Prototype
 
-- [ ] Design a lightweight PAVE console focused on Physical AI experiments.
-- [ ] Keep the first version small and operational, not a general-purpose VLM UI.
-- [ ] Reuse the existing video backend instead of rewriting the live-stream pipeline.
-- [ ] Reuse existing VLM and GPU monitoring backend capabilities first where possible.
-- [ ] Avoid rewriting the live-stream, VLM, and GPU monitoring backend paths until the UI shape is validated.
-- [ ] Decide whether the first implementation is a simplified static frontend or a small frontend app.
-- [ ] Document which parts of the current `live-vlm-webui` are still reused.
-- [ ] Show the robot camera or RTSP stream as the primary view.
-- [ ] Display stream connection state, such as connected, disconnected, or reconnecting.
-- [ ] Keep the stream layout stable across desktop and smaller screens.
-- [ ] Preserve room for prompt/result panels without hiding the live view.
-- [ ] Show CPU usage.
-- [ ] Show memory usage.
-- [ ] Show GPU utilization when available.
-- [ ] Show GPU memory usage when available.
-- [ ] Prepare space for FPS and inference latency metrics.
-- [ ] Keep metrics compact enough for repeated experiment monitoring.
-- [ ] Provide prompt input.
-- [ ] Show the active model and backend endpoint.
-- [ ] Show raw VLM output.
-- [ ] Show parsed intent.
-- [ ] Include timestamps and basic latency information where available.
+- [x] Design a lightweight PAVE console focused on Physical AI experiments.
+- [x] Keep the first version small and operational, not a general-purpose VLM UI.
+- [x] Reuse the existing video backend instead of rewriting the live-stream pipeline.
+- [x] Reuse existing VLM and GPU monitoring backend capabilities first where possible.
+- [x] Avoid rewriting the live-stream, VLM, and GPU monitoring backend paths until the UI shape is validated.
+- [x] Decide whether the first implementation is a simplified static frontend or a small frontend app.
+- [x] Document which parts of the current `live-vlm-webui` are still reused.
+- [x] Show the robot camera or RTSP stream as the primary view.
+- [x] Display stream connection state, such as connected, disconnected, or reconnecting.
+- [x] Keep the stream layout stable across desktop and smaller screens.
+- [x] Preserve room for prompt/result panels without hiding the live view.
+- [x] Show CPU usage.
+- [x] Show memory usage.
+- [x] Show GPU utilization when available.
+- [x] Show GPU memory usage when available.
+- [x] Prepare space for FPS and inference latency metrics.
+- [x] Keep metrics compact enough for repeated experiment monitoring.
+- [x] Provide prompt input.
+- [x] Show the active model and backend endpoint.
+- [x] Show raw VLM output.
+- [x] Show parsed intent.
+- [x] Include timestamps and basic latency information where available.
 
 ### Stage 2B: Runtime Feedback Integration
 
-- [ ] Connect the UI to the Stage 1 intent schema.
-- [ ] Connect the UI to robot state and command result feedback.
-- [ ] Show robot state from Stage 1 feedback.
-- [ ] Show command result from Stage 1 feedback.
-- [ ] Show parsed intent and command lifecycle side by side with raw VLM output.
-- [ ] Keep UI actions routed through stable backend APIs rather than direct robot-specific logic.
-- [ ] Keep PuppyPi visible as the first robot target, but avoid baking PuppyPi assumptions into the UI.
+- [x] Connect the UI to the Stage 1 intent schema.
+- [x] Connect the UI to robot state and command result feedback.
+- [x] Show robot state from Stage 1 feedback.
+- [x] Show command result from Stage 1 feedback.
+- [x] Show parsed intent and command lifecycle side by side with raw VLM output.
+- [x] Keep UI actions routed through stable backend APIs rather than direct robot-specific logic.
+- [x] Keep PuppyPi visible as the first robot target, but avoid baking PuppyPi assumptions into the UI.
 
 ## Stage 3: Experimentation Framework
 

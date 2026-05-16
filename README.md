@@ -87,6 +87,7 @@ python3 -m venv .venv
 source .venv/bin/activate
 python3 -m pip install -U pip
 python3 -m pip install -r intent-ingress/requirements.txt
+python3 -m pip install -r ui/requirements.txt
 ```
 
 Run the current Python tests from the repo root:
@@ -95,7 +96,9 @@ Run the current Python tests from the repo root:
 python3 -B -m unittest discover
 ```
 
-The repo-level `.venv` is intended for local development across `intent-ingress`, `control-daemon`, shared runtime helpers, and tests. Module-level requirements files should remain available for service-specific runtime or future deployment packaging. As OpenPAVE grows, individual services may later get separate dependency sets or containers, but the current Stage 1 development workflow assumes a single shared virtual environment.
+The repo-level `.venv` is intended for local development across `intent-ingress`, `control-daemon`, shared runtime helpers, tests, and the Stage 2 lightweight console. Module-level requirements files should remain available for service-specific runtime or future deployment packaging. As OpenPAVE grows, individual services may later get separate dependency sets or containers, but the current Stage 1 and Stage 2 development workflow assumes a single shared virtual environment.
+
+For the UI dependencies, prefer Python 3.10 to 3.12. Very new Python versions may not have prebuilt wheels for packages such as `av`.
 
 ## Stage 1 runtime
 
@@ -203,6 +206,39 @@ The control daemon also writes lightweight feedback files:
 
 These files expose the latest command lifecycle state, adapter result, return codes, robot status, and last command summary for Stage 2 UI and future benchmark tooling.
 
+## Stage 2 lightweight console
+
+Stage 2 adds a lightweight OpenPAVE console while reusing the existing video, VLM, WebSocket, and GPU monitoring backend paths.
+
+The original Live VLM WebUI remains available at:
+
+```text
+/
+```
+
+The lightweight OpenPAVE console is available at:
+
+```text
+/pave
+```
+
+The console focuses on:
+
+- live stream
+- CPU, GPU, and memory usage
+- prompt input
+- active model and backend endpoint
+- raw VLM result
+- parsed intent
+- Stage 1 command result
+- Stage 1 robot state
+
+The console reads Stage 1 feedback through:
+
+```text
+GET /api/pave/runtime
+```
+
 ## Why edge matters here
 
 Many PoCs can be demonstrated using cloud inference. OpenPAVE specifically focuses on edge-side execution because it is closer to how real-world robotics systems are often evaluated and deployed.
@@ -222,28 +258,45 @@ However, OpenPAVE is not limited to Raspberry Pi alone. The same workflow can be
 
 ## Repository structure
 
-Suggested top-level structure:
+The repository root keeps only the main `README.md` as the entry point. Supporting project documents are kept under `docs/`.
 
 ```text
 .
 ├─ README.md
 ├─ docs/
 │  ├─ architecture.md
-│  ├─ demo-flow.md
-│  └─ troubleshooting.md
-├─ live_webui/
-│  └─ notes about the modified web UI component
-├─ ros2_bridge/
-│  └─ ROS2 communication and integration code
-├─ robot_control/
-│  └─ robot-side scripts and hardware control logic
-├─ prompts/
-│  └─ task presets and prompt templates
-├─ scripts/
-│  └─ setup and launch helpers
-└─ configs/
-   └─ runtime configuration files
+│  ├─ arm-physical-ai-ref-workflow.md
+│  ├─ intent_schema.md
+│  ├─ live-vlm-webui_hook.md
+│  ├─ pave_console.md
+│  ├─ pave_ver1_readme.md
+│  ├─ robot_adapters.md
+│  ├─ robot_feedback.md
+│  ├─ runbook.md
+│  ├─ stage1.step.md
+│  ├─ third_party_notices.md
+│  └─ todo.md
+├─ control-daemon/
+├─ intent-ingress/
+├─ pave_runtime/
+├─ third_party/
+└─ ui/
 ```
+
+## Documentation guide
+
+- `docs/architecture.md`: Current high-level architecture notes and role split across the UI, control daemon, robot side, and runtime flow.
+- `docs/arm-physical-ai-ref-workflow.md`: Reference workflow framing for local edge Physical AI on Arm/Linux ecosystems. This is not an official Arm position.
+- `docs/intent_schema.md`: Stage 1 intent schema v0.1, including supported intent types, metadata, validation rules, and examples.
+- `docs/live-vlm-webui_hook.md`: Notes for the server-side hook that forwards selected VLM outputs such as `STOP` and `TROT` to Intent Ingress.
+- `docs/pave_console.md`: Stage 2 lightweight OpenPAVE console design and backend reuse notes.
+- `docs/pave_ver1_readme.md`: Preserved Ver1 MVP README for the original demo/runtime flow.
+- `docs/robot_adapters.md`: Robot Adapter interface contract, current PuppyPi/mock adapters, and guidance for adding future hardware targets.
+- `docs/robot_feedback.md`: Robot state and command result feedback model used by Stage 1 and surfaced in Stage 2.
+- `docs/runbook.md`: Stable MVP runbook for operating the PuppyPi-side and control-side flow.
+- `docs/stage1.step.md`: End-to-end Stage 1 validation procedure for DGX/control machine plus PuppyPi.
+- `docs/third_party_notices.md`: Third-party component notices and attribution details.
+- `docs/todo.md`: Roadmap and staged execution checklist for current and upcoming OpenPAVE work.
 
 ## Typical use cases
 
