@@ -8,6 +8,41 @@ Stage 1 covers:
 - Stage 1B: robot adapter boundary
 - Stage 1C: command result and robot state feedback
 
+## Stage 1 Flow
+
+```mermaid
+flowchart LR
+    subgraph DGX["DGX / Control Machine"]
+        WebUI["WebUI or Manual curl"]
+        Ingress["Intent Ingress<br/>127.0.0.1:7071"]
+        IntentFile["/tmp/vla_intent.json<br/>Intent File Bus"]
+        Daemon["Control Daemon"]
+        Adapter{"Robot Adapter"}
+        PuppyAdapter["PuppyPiAdapter"]
+        MockAdapter["MockAdapter<br/>Dry Run"]
+        CommandResult["/tmp/vla_command_result.json"]
+        RobotState["/tmp/vla_robot_state.json"]
+    end
+
+    subgraph PuppyPi["PuppyPi Robot"]
+        ROS2["ROS2 puppy_control"]
+        Motion["Physical Robot Action"]
+    end
+
+    WebUI -->|"POST /intent"| Ingress
+    Ingress -->|"normalize to schema v0.1"| IntentFile
+    IntentFile -->|"poll + de-dupe"| Daemon
+    Daemon -->|"received / accepted / executing"| CommandResult
+    Daemon --> Adapter
+    Adapter --> PuppyAdapter
+    Adapter --> MockAdapter
+    PuppyAdapter -->|"Dockerized ROS2 CLI"| ROS2
+    ROS2 --> Motion
+    MockAdapter -->|"print only"| CommandResult
+    PuppyAdapter -->|"step return codes"| CommandResult
+    Daemon -->|"latest status"| RobotState
+```
+
 The expected runtime path is:
 
 ```text
