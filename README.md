@@ -78,6 +78,25 @@ Robot-side camera stream
 → output shown in the web UI  
 → optional task-specific prompt response or navigation suggestion
 
+## Development environment
+
+For current OpenPAVE development, use one shared repo-level Python virtual environment:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python3 -m pip install -U pip
+python3 -m pip install -r intent-ingress/requirements.txt
+```
+
+Run the current Python tests from the repo root:
+
+```bash
+python3 -B -m unittest discover
+```
+
+The repo-level `.venv` is intended for local development across `intent-ingress`, `control-daemon`, shared runtime helpers, and tests. Module-level requirements files should remain available for service-specific runtime or future deployment packaging. As OpenPAVE grows, individual services may later get separate dependency sets or containers, but the current Stage 1 development workflow assumes a single shared virtual environment.
+
 ## Why edge matters here
 
 Many PoCs can be demonstrated using cloud inference. OpenPAVE specifically focuses on edge-side execution because it is closer to how real-world robotics systems are often evaluated and deployed.
