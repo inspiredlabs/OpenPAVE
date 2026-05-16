@@ -1,10 +1,16 @@
-# Lightweight Physical-AI Edge VLA Experimentation
+# OpenPAVE: Open Physical-AI VLA Experimentation
 
-## A developer-friendly workflow for edge VLA experimentation on RPi and Cortex-X/A edge platforms
+## A developer-friendly open edge workflow for local VLA experimentation on Arm computing platforms
 
-PAVE is a personal project that explores how low-cost hardware, open-source software, and edge-side AI inference can be combined into a practical workflow for Physical AI experimentation. It connects robot-side streaming, ROS2 communication, an open-source web UI, and edge-side inference into a reproducible path for prototyping VLA-driven applications on real robotic systems.
+OpenPAVE is a local-first, cloud-free reference workflow for connecting robot endpoints, edge inference devices, ROS2 communication, VLM/VLA reasoning, and observability tooling into an end-to-end Physical AI experimentation path.
 
 This project is intended for developers, hobbyists, and small teams who want to experiment with upper-layer VLA / VLM applications without relying on expensive commercial robotics platforms.
+
+## Project positioning
+
+OpenPAVE is positioned as a local, developer-controlled Physical AI reference workflow built on open-source software commonly used across the Arm/Linux robotics ecosystem. It is intended to show how robot endpoints, edge inference devices, ROS2 communication, prompt-driven VLM/VLA logic, and observability tooling can be composed into an end-to-end workflow for demos, research, PoCs, and architecture validation.
+
+This is a reference workflow perspective, not an official Arm position or product statement. PuppyPi is the first physical robot target used to validate the workflow, but the architecture is expected to expand toward additional robot targets and compute devices through clearer runtime contracts and robot adapters.
 
 
 ## Project highlights
@@ -14,19 +20,21 @@ This project is intended for developers, hobbyists, and small teams who want to 
 - Leverages an open-source Live WebUI to accelerate PoC integration and visualisation
 - Uses standard ROS2 communication between the robot and the edge server for interoperability and extensibility
 - Uses prompt-driven task customisation to explore how general-purpose VLMs can adapt to robotics workflows
+- Treats the current PuppyPi setup as the first adapter target, not the final hardware boundary
+- Aims to support future experiments across multiple local compute devices and robot endpoints
 - Split the system cleanly into two roles:
    - VLA Observability UI: Enables users to easily switch between models, try different prompts, and monitor both inference outputs and performance metrics—speeding up debugging and validation.
    - VLA Control Daemon: Translates VLA/VLM outputs into executable ROS 2 commands to reliably control the PuppyPi robot dog, and serves as a deployable, reusable control core.
 
 ## What this project is
 
-PAVE is a lightweight experimentation project, not a full commercial robotics software stack.
+OpenPAVE is a lightweight experimentation project, not a full commercial robotics software stack.
 
-Its value is in showing that developers can use affordable hardware and open-source components to build and test Physical AI workflows in a practical and visible way. Rather than competing with mature one-stop robotics platforms, PAVE focuses on lowering the barrier to experimentation and making upper-layer VLA / VLM PoCs easier to prototype, understand, and extend.
+Its value is in showing that developers can use affordable hardware and open-source components to build and test Physical AI workflows in a practical and visible way. Rather than competing with mature one-stop robotics platforms, OpenPAVE focuses on lowering the barrier to experimentation and making upper-layer VLA / VLM PoCs easier to prototype, understand, and extend.
 
 ## What this project is not
 
-PAVE is not intended to be:
+OpenPAVE is not intended to be:
 
 - a complete autonomous robotics platform
 - a production-ready robot control stack
@@ -48,7 +56,7 @@ The robot platform used in the demo is only a showcase vehicle. The core idea of
 
 ## System overview
 
-PAVE currently consists of three main parts:
+OpenPAVE currently consists of three main parts:
 
 1. **Live WebUI**
    - modified from the open-source `live-vlm-webui` project
@@ -72,7 +80,7 @@ Robot-side camera stream
 
 ## Why edge matters here
 
-Many PoCs can be demonstrated using cloud inference. PAVE specifically focuses on edge-side execution because it is closer to how real-world robotics systems are often evaluated and deployed.
+Many PoCs can be demonstrated using cloud inference. OpenPAVE specifically focuses on edge-side execution because it is closer to how real-world robotics systems are often evaluated and deployed.
 
 Using edge-side compute helps:
 
@@ -85,7 +93,7 @@ Using edge-side compute helps:
 
 RPi is used here because it is highly recognisable in the developer community and represents an accessible entry point for robotics and edge experimentation.
 
-However, PAVE is not limited to Raspberry Pi alone. The same workflow can be adapted to other Arm-based Linux systems and Cortex-X/A-based edge platforms, depending on the hardware and deployment goals.
+However, OpenPAVE is not limited to Raspberry Pi alone. The same workflow can be adapted to other Arm computing platforms and edge devices, depending on the hardware and deployment goals.
 
 ## Repository structure
 
@@ -114,7 +122,7 @@ Suggested top-level structure:
 
 ## Typical use cases
 
-PAVE is currently intended to support exploration of use cases such as:
+OpenPAVE is currently intended to support exploration of use cases such as:
 
 * real-time scene understanding
 * object recognition in live robot streams
@@ -127,10 +135,12 @@ PAVE is currently intended to support exploration of use cases such as:
 * Benchmark different VLA / VLM models under the same live robotics scenario across edge computing platforms
 * Investigate how real-time communication can be improved for lower latency, higher reliability, and better fault tolerance
 * Extend the workflow into additional Physical AI PoCs to validate reuse across different application scenarios
+* Add additional hardware targets and compute devices to validate the workflow beyond the initial PuppyPi setup
+* Formalise robot adapters, intent schemas, and command feedback so the workflow can be reused across different local Physical AI experiments
 
 ## Target users
 
-PAVE is intended for:
+OpenPAVE is intended for:
 
 * developers exploring Physical AI workflows
 * robotics and edge AI hobbyists
@@ -149,12 +159,13 @@ This project includes or references components derived from NVIDIA-AI-IOT/live-v
 
 ## Positioning summary
 
-PAVE is best understood as:
+OpenPAVE is best understood as:
 
 * a lightweight experimentation project
 * a developer-friendly edge VLA workflow
 * a reproducible PoC path for Physical AI exploration
 * a practical way to study how open-source software and affordable edge hardware can support real-world AI robotics use cases
+* a non-official Arm/Linux ecosystem reference workflow for local Physical AI demos, research, PoCs, and architecture validation
 
 ## Status
 
