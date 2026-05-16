@@ -11,15 +11,17 @@ if str(ROOT) not in sys.path:
 
 from pave_runtime.intent_schema import IntentValidationError, normalize_intent_payload
 
-INTENT_PATH = os.environ.get("INTENT_PATH", "/tmp/vla_intent.json")
-
 app = Flask(__name__)
 
+def get_intent_path():
+    return os.environ.get("INTENT_PATH", "/tmp/vla_intent.json")
+
 def atomic_write(obj: dict):
-    tmp = INTENT_PATH + ".tmp"
+    intent_path = get_intent_path()
+    tmp = intent_path + ".tmp"
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(obj, f, ensure_ascii=False)
-    os.replace(tmp, INTENT_PATH)
+    os.replace(tmp, intent_path)
 
 @app.post("/intent")
 def intent():
