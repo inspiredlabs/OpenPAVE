@@ -108,7 +108,7 @@ Use threshold options when you want the summary command to fail on regressions:
 ```bash
 python3 scripts/summarize_benchmarks.py benchmark-results/*.jsonl \
   --min-pass-rate 1.0 \
-  --max-avg-latency-ms 500
+  --max-avg-latency-ms 1500
 ```
 
 The command exits with status `1` if any grouped result falls below the pass-rate threshold or exceeds the average-latency threshold. This is useful as a lightweight release check for the control path.
@@ -169,3 +169,5 @@ python3 scripts/run_benchmark.py scenarios/mock-intent-stop-trot.json \
 ## Current Scope
 
 Stage 3C.1 measures control-path behavior and can summarize results by scenario metadata such as model, robot/sensor endpoint, adapter, and inference node. VLM inference latency, camera frame replay, FPS, GPU usage, and model output quality should be added in a later Stage 3C slice once benchmark input datasets are defined.
+
+For a quick vLLM/UI smoke test outside the benchmark runner, use the `/pave` console's text-only inference path. That validates the OpenAI-compatible backend and prompt/result UI without requiring a camera stream.

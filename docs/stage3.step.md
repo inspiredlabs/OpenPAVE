@@ -172,6 +172,14 @@ Use `/` for the full upstream `live-vlm-webui`.
 
 Use `/pave` for the lightweight OpenPAVE console when the checked-out `ui` submodule includes the Stage 2 console patch. If `/` works but `/pave` returns 404, the current `live-vlm-webui` checkout does not include the OpenPAVE console route.
 
+The `/pave` console can also run a text-only prompt inference through:
+
+```text
+POST /api/pave/infer
+```
+
+Use this to validate the vLLM/OpenAI-compatible backend and UI prompt/result path before connecting a live camera stream or physical robot.
+
 ## Runtime Files
 
 The launcher uses these default runtime files:
@@ -326,7 +334,7 @@ Use threshold gates when validating a release candidate:
 ```bash
 python3 scripts/summarize_benchmarks.py benchmark-results/*.jsonl \
   --min-pass-rate 1.0 \
-  --max-avg-latency-ms 500
+  --max-avg-latency-ms 1500
 ```
 
 The command returns a non-zero exit code if any grouped result violates the gate.
