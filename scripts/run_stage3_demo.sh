@@ -56,6 +56,8 @@ INTENT_PORT="7071"
 INTENT_INGRESS_URL="${INTENT_INGRESS_URL:-http://127.0.0.1:${INTENT_PORT}/intent}"
 
 ROBOT_ADAPTER="${ROBOT_ADAPTER:-mock}"
+STOP_ROBOT_ON_EXIT="${STOP_ROBOT_ON_EXIT:-1}"
+STOP_ROBOT_ON_EXIT_TIMEOUT_SEC="${STOP_ROBOT_ON_EXIT_TIMEOUT_SEC:-3}"
 ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-0}"
 RMW_IMPLEMENTATION="${RMW_IMPLEMENTATION:-rmw_fastrtps_cpp}"
 ROS_SVC_IMAGE="${ROS_SVC_IMAGE:-ros:humble}"
@@ -80,6 +82,7 @@ fi
 
 PIDS=()
 SHUTTING_DOWN=0
+STOP_SENT_ON_EXIT=0
 
 log() {
   printf '[openpave] %s\n' "$*"
@@ -139,12 +142,63 @@ start_process() {
   log "  pid: $pid"
 }
 
+post_stop_intent_on_exit() {
+  if [[ "$STOP_SENT_ON_EXIT" == "1" ]]; then
+    return 0
+  fi
+  STOP_SENT_ON_EXIT=1
+
+  if [[ "$STOP_ROBOT_ON_EXIT" != "1" && "$STOP_ROBOT_ON_EXIT" != "true" ]]; then
+    return 0
+  fi
+  if [[ "$ROBOT_ADAPTER" != "puppypi" ]]; then
+    return 0
+  fi
+  if ! http_get "http://127.0.0.1:${INTENT_PORT}/healthz"; then
+    warn "cannot send shutdown STOP because Intent Ingress is not reachable"
+    return 0
+  fi
+
+  log "sending shutdown STOP intent for physical robot safety"
+  if command -v curl >/dev/null 2>&1; then
+    curl -fsS \
+      -X POST "http://127.0.0.1:${INTENT_PORT}/intent" \
+      -H 'Content-Type: application/json' \
+      -d '{"intent":"STOP","source":"launcher-shutdown"}' >/dev/null 2>&1 || {
+        warn "failed to send shutdown STOP intent"
+        return 0
+      }
+  else
+    "$PYTHON_BIN" - "http://127.0.0.1:${INTENT_PORT}/intent" <<'PY'
+import json
+import sys
+import urllib.request
+
+data = json.dumps({"intent": "STOP", "source": "launcher-shutdown"}).encode()
+request = urllib.request.Request(
+    sys.argv[1],
+    data=data,
+    headers={"Content-Type": "application/json"},
+    method="POST",
+)
+try:
+    with urllib.request.urlopen(request, timeout=1.5):
+        pass
+except Exception:
+    sys.exit(1)
+PY
+  fi
+
+  sleep "$STOP_ROBOT_ON_EXIT_TIMEOUT_SEC"
+}
+
 shutdown() {
   local code=$?
   if [[ "$SHUTTING_DOWN" == "1" ]]; then
     exit "$code"
   fi
   SHUTTING_DOWN=1
+  post_stop_intent_on_exit
   if [[ ${#PIDS[@]} -gt 0 ]]; then
     log "shutting down managed processes"
     for pid in "${PIDS[@]}"; do
@@ -165,6 +219,7 @@ print_config() {
   OPENPAVE_CONFIG=${OPENPAVE_CONFIG:-}
   PYTHON_BIN=$PYTHON_BIN
   ROBOT_ADAPTER=$ROBOT_ADAPTER
+  STOP_ROBOT_ON_EXIT=$STOP_ROBOT_ON_EXIT
   INTENT_PATH=$INTENT_PATH
   COMMAND_RESULT_PATH=$COMMAND_RESULT_PATH
   ROBOT_STATE_PATH=$ROBOT_STATE_PATH
@@ -203,13 +258,15 @@ print_config
 check_external_dependencies
 
 start_process "intent_ingress" "$LOG_DIR/intent_ingress.log" \
-  env INTENT_PATH="$INTENT_PATH" \
+  env PYTHONUNBUFFERED=1 \
+  INTENT_PATH="$INTENT_PATH" \
   "$PYTHON_BIN" -m intent_ingress.server
 
 wait_for_http "Intent Ingress" "http://127.0.0.1:${INTENT_PORT}/healthz"
 
 start_process "control_daemon" "$LOG_DIR/control_daemon.log" \
-  env INTENT_PATH="$INTENT_PATH" \
+  env PYTHONUNBUFFERED=1 \
+  INTENT_PATH="$INTENT_PATH" \
   COMMAND_RESULT_PATH="$COMMAND_RESULT_PATH" \
   ROBOT_STATE_PATH="$ROBOT_STATE_PATH" \
   ROBOT_ADAPTER="$ROBOT_ADAPTER" \
@@ -232,6 +289,7 @@ UI_CMD=(
   INTENT_FORWARDING_ENABLED="${INTENT_FORWARDING_ENABLED:-1}"
   TROT_CONFIRMATIONS="${TROT_CONFIRMATIONS:-2}"
   TROT_CONFIRMATION_WINDOW_MS="${TROT_CONFIRMATION_WINDOW_MS:-1500}"
+  PYTHONUNBUFFERED=1
   "$PYTHON_BIN"
   -B
   -m

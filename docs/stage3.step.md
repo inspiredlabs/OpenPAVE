@@ -262,4 +262,12 @@ The launcher shuts down the managed child processes:
 - Control Daemon
 - OpenPAVE UI server
 
+When `ROBOT_ADAPTER=puppypi`, the launcher sends a final `STOP` intent before stopping managed processes. This helps return PuppyPi to a safe state if the demo is interrupted while the robot is moving.
+
+Disable this only for debugging:
+
+```bash
+STOP_ROBOT_ON_EXIT=0 OPENPAVE_CONFIG=configs/puppypi.env ./scripts/run_stage3_demo.sh
+```
+
 It does not stop external dependencies such as vLLM or the robot-side ROS2 controller.
