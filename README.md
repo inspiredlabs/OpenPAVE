@@ -305,6 +305,7 @@ The repository root keeps only the main `README.md` as the entry point. Supporti
 ├─ docs/
 │  ├─ architecture.md
 │  ├─ arm-physical-ai-ref-workflow.md
+│  ├─ benchmark-harness.md
 │  ├─ intent-schema.md
 │  ├─ live-vlm-webui-hook.md
 │  ├─ pave-console.md
@@ -359,6 +360,7 @@ On the PuppyPi side, start the ROS2 controller with:
 
 - `docs/architecture.md`: Current high-level architecture notes and role split across robot/sensor endpoints, edge inference/observability, and runtime control.
 - `docs/arm-physical-ai-ref-workflow.md`: Reference workflow framing for local edge Physical AI on Arm/Linux ecosystems. This is not an official Arm position.
+- `docs/benchmark-harness.md`: Stage 3C control-path benchmark runner usage and result format.
 - `docs/intent-schema.md`: Stage 1 intent schema v0.1, including supported intent types, metadata, validation rules, and examples.
 - `docs/live-vlm-webui-hook.md`: Notes for the server-side hook that forwards selected VLM outputs such as `STOP` and `TROT` to Intent Ingress.
 - `docs/pave-console.md`: Stage 2 lightweight OpenPAVE console design and backend reuse notes.

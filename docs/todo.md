@@ -124,17 +124,17 @@ Move PAVE from a working demo pipeline toward a repeatable Physical AI experimen
 
 ### Stage 3C: Benchmark Harness
 
-- [ ] Define benchmark dimensions: inference latency, intent correctness, command latency, action success rate, recovery behavior, FPS, and GPU usage.
-- [ ] Add a repeatable benchmark runner.
-- [ ] Capture model, prompt, scenario, robot/sensor endpoint, adapter, inference node, hardware, and runtime configuration for each run.
-- [ ] Store benchmark results in a structured format such as JSONL or CSV.
-- [ ] Add summary reporting for benchmark runs.
+- [x] Define benchmark dimensions: inference latency, intent correctness, command latency, action success rate, recovery behavior, FPS, and GPU usage.
+- [x] Add a repeatable benchmark runner.
+- [x] Capture model, prompt, scenario, robot/sensor endpoint, adapter, inference node, hardware, and runtime configuration for each run.
+- [x] Store benchmark results in a structured format such as JSONL or CSV.
+- [x] Add summary reporting for benchmark runs.
 - [ ] Support comparing different VLM/VLA models under the same scenario.
 - [ ] Support comparing different robot/sensor endpoints under the same prompt and scenario contract.
 - [ ] Support comparing different Arm-based inference nodes under the same prompt and scenario contract.
-- [ ] Include control-path latency from intent emission to ROS 2 command execution.
-- [ ] Connect benchmark runs to prompt presets and demo scenarios.
-- [ ] Document how to add a new prompt or scenario.
+- [x] Include control-path latency from intent emission to ROS 2 command execution.
+- [x] Connect benchmark runs to prompt presets and demo scenarios.
+- [x] Document how to add a new prompt or scenario.
 
 ## Stage 4: UI Independence and live-vlm-webui Decoupling
 
