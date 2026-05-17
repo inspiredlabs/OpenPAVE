@@ -321,9 +321,7 @@ The repository root keeps only the main `README.md` as the entry point. Supporti
 │  ├─ mock.env
 │  └─ puppypi.env
 ├─ control_daemon/
-├─ control-daemon/      # legacy script wrapper
 ├─ intent_ingress/
-├─ intent-ingress/      # legacy script wrapper
 ├─ pave_runtime/
 ├─ scripts/
 ├─ third_party/
@@ -334,7 +332,6 @@ Naming conventions:
 
 - Python packages use `snake_case`, such as `control_daemon`, `intent_ingress`, and `pave_runtime`.
 - Shell-facing scripts and GitHub document names use `kebab-case` where practical.
-- `control-daemon/` and `intent-ingress/` are retained as compatibility wrappers for older commands and Ver1 documentation.
 - The upstream UI submodule keeps its project/package naming: `live-vlm-webui` for the project and `live_vlm_webui` for the Python package.
 
 Runtime profiles are stored in `configs/`:

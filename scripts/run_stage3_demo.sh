@@ -199,13 +199,13 @@ check_external_dependencies() {
 print_config
 check_external_dependencies
 
-start_process "intent-ingress" "$LOG_DIR/intent-ingress.log" \
+start_process "intent_ingress" "$LOG_DIR/intent_ingress.log" \
   env INTENT_PATH="$INTENT_PATH" \
   "$PYTHON_BIN" -m intent_ingress.server
 
 wait_for_http "Intent Ingress" "http://127.0.0.1:${INTENT_PORT}/healthz"
 
-start_process "control-daemon" "$LOG_DIR/control-daemon.log" \
+start_process "control_daemon" "$LOG_DIR/control_daemon.log" \
   env INTENT_PATH="$INTENT_PATH" \
   COMMAND_RESULT_PATH="$COMMAND_RESULT_PATH" \
   ROBOT_STATE_PATH="$ROBOT_STATE_PATH" \
@@ -263,8 +263,8 @@ cat <<EOF
     $ROBOT_STATE_PATH
 
   Logs:
-    $LOG_DIR/intent-ingress.log
-    $LOG_DIR/control-daemon.log
+    $LOG_DIR/intent_ingress.log
+    $LOG_DIR/control_daemon.log
     $LOG_DIR/openpave-ui.log
 
 [openpave] press Ctrl+C to stop managed services

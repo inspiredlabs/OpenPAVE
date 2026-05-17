@@ -113,8 +113,8 @@ export ROBOT_STATE_PATH=/tmp/vla_robot_state.json
 Inspect logs with:
 
 ```bash
-tail -f .openpave/logs/intent-ingress.log
-tail -f .openpave/logs/control-daemon.log
+tail -f .openpave/logs/intent_ingress.log
+tail -f .openpave/logs/control_daemon.log
 tail -f .openpave/logs/openpave-ui.log
 ```
 

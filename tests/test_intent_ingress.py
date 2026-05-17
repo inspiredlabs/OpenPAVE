@@ -13,7 +13,7 @@ def load_ingress_module():
     return importlib.reload(importlib.import_module("intent_ingress.server"))
 
 
-@unittest.skipUnless(HAS_FLASK, "Flask is not installed; run with intent-ingress requirements")
+@unittest.skipUnless(HAS_FLASK, "Flask is not installed; run with intent_ingress requirements")
 class IntentIngressTests(unittest.TestCase):
     def setUp(self):
         self.tempdir = tempfile.TemporaryDirectory()
