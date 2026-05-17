@@ -1,22 +1,20 @@
 # Stable Runbook (MVP)
 
 ## PuppyPi side
-1) Export environment:
+1) Start the PuppyPi ROS2 controller:
 ```bash
+cd /path/to/OpenPAVE
 export ROS_DOMAIN_ID=0
 export RMW_IMPLEMENTATION=rmw_fastrtps_cpp
+./scripts/start_puppypi_controller.sh
 ```
 
-2) Start ROS 2 daemon (optional, helps stale state):
-```bash
-ros2 daemon stop || true
-ros2 daemon start
-```
+The script starts the `puppypi_ros2` container, refreshes the ROS2 daemon by default, and launches `puppy_control`.
 
-3) Launch controller:
+Override defaults when needed:
+
 ```bash
-source /opt/ros/humble/setup.bash
-ros2 launch puppy_control puppy_control.launch.py
+PUPPYPI_CONTAINER=puppypi_ros2 ROS_DOMAIN_ID=0 ./scripts/start_puppypi_controller.sh
 ```
 
 ## DGX side

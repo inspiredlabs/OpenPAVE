@@ -346,6 +346,12 @@ OPENPAVE_CONFIG=configs/mock.env ./scripts/run_stage3_demo.sh
 OPENPAVE_CONFIG=configs/puppypi.env ./scripts/run_stage3_demo.sh
 ```
 
+On the PuppyPi side, start the ROS2 controller with:
+
+```bash
+./scripts/start_puppypi_controller.sh
+```
+
 ## Documentation guide
 
 - `docs/architecture.md`: Current high-level architecture notes and role split across robot/sensor endpoints, edge inference/observability, and runtime control.

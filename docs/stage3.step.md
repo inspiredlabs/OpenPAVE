@@ -105,7 +105,30 @@ If vLLM fails with an `openai.types.responses` import error, the vLLM environmen
 
 ## Physical PuppyPi Validation
 
-Start the PuppyPi ROS2 controller and vLLM backend first, then run:
+Start the PuppyPi ROS2 controller on the PuppyPi side:
+
+```bash
+cd /path/to/OpenPAVE
+
+export ROS_DOMAIN_ID=0
+export RMW_IMPLEMENTATION=rmw_fastrtps_cpp
+
+./scripts/start_puppypi_controller.sh
+```
+
+The script uses these defaults:
+
+```text
+PUPPYPI_CONTAINER=puppypi_ros2
+PUPPYPI_USER=ubuntu
+PUPPYPI_WORKDIR=/home/ubuntu
+ROS_DOMAIN_ID=0
+RMW_IMPLEMENTATION=rmw_fastrtps_cpp
+PUPPYPI_RESTART_ROS_DAEMON=1
+PUPPYPI_LAUNCH_CMD=ros2 launch puppy_control puppy_control.launch.py
+```
+
+Start the vLLM backend, then run the OpenPAVE runtime on the DGX/control side:
 
 ```bash
 cd /path/to/OpenPAVE
