@@ -153,6 +153,41 @@ export COMMAND_RESULT_PATH=/tmp/vla_command_result.json
 export ROBOT_STATE_PATH=/tmp/vla_robot_state.json
 ```
 
+## Debug Unexpected Robot Motion
+
+If the robot executes `TROT` when you did not intentionally send a new command, first determine whether it came from a stale intent file or from a fresh VLM/UI output.
+
+Inspect the current intent:
+
+```bash
+cat /tmp/vla_intent.json
+```
+
+Inspect command lifecycle feedback:
+
+```bash
+cat /tmp/vla_command_result.json
+cat /tmp/vla_robot_state.json
+```
+
+Watch the managed runtime logs:
+
+```bash
+tail -f .openpave/logs/intent_ingress.log
+tail -f .openpave/logs/control_daemon.log
+tail -f .openpave/logs/openpave-ui.log
+```
+
+The control daemon ignores an intent file that already exists before daemon startup. It only processes that file after it changes. This prevents a stale `/tmp/vla_intent.json` containing `TROT` from being replayed when the runtime restarts.
+
+To intentionally replay an existing intent file during development:
+
+```bash
+PROCESS_EXISTING_INTENT_ON_START=1 ./scripts/run_stage3_demo.sh
+```
+
+If `/tmp/vla_intent.json` changes to `TROT` while the UI is running, the likely source is a VLM output being forwarded by `live-vlm-webui`. In that case, check `openpave-ui.log` and the UI prompt/result panel. For physical robot validation, keep the prompt strict and prefer `STOP` as the fallback output.
+
 ## Logs
 
 Inspect logs with:

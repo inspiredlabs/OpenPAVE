@@ -65,6 +65,9 @@ INTENT_PATH = os.environ.get("INTENT_PATH", "/tmp/vla_intent.json")
 POLL_SEC = float(os.environ.get("POLL_SEC", "0.2"))
 COMMAND_RESULT_PATH = os.environ.get("COMMAND_RESULT_PATH", "/tmp/vla_command_result.json")
 ROBOT_STATE_PATH = os.environ.get("ROBOT_STATE_PATH", "/tmp/vla_robot_state.json")
+PROCESS_EXISTING_INTENT_ON_START = os.environ.get(
+    "PROCESS_EXISTING_INTENT_ON_START", "0"
+).lower() in {"1", "true", "yes"}
 
 def load_intent():
     try:
@@ -155,9 +158,12 @@ def main():
     print(f"[daemon] ROBOT_ADAPTER={adapter.name}")
     print(f"[daemon] COMMAND_RESULT_PATH={COMMAND_RESULT_PATH}")
     print(f"[daemon] ROBOT_STATE_PATH={ROBOT_STATE_PATH}")
+    print(f"[daemon] PROCESS_EXISTING_INTENT_ON_START={PROCESS_EXISTING_INTENT_ON_START}")
     write_robot_state("idle", adapter.name)
 
-    last_mtime = None
+    last_mtime = None if PROCESS_EXISTING_INTENT_ON_START else get_mtime(INTENT_PATH)
+    if last_mtime is not None:
+        print(f"[daemon] ignoring existing intent file until it changes: {INTENT_PATH}")
     last_action_key = None  # de-dupe repeated identical actions
 
     while True:
