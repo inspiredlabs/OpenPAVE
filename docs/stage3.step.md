@@ -58,6 +58,51 @@ ROBOT_IP_ADDRESS=192.168.0.8
 
 `ROBOT_ADAPTER=mock` is the default to avoid accidental physical robot motion.
 
+## Start a vLLM Backend
+
+Stage 3 can start the OpenPAVE runtime without vLLM, but real VLM inference requires an OpenAI-compatible backend at the configured `UI_API_BASE`.
+
+Use a separate vLLM virtual environment to avoid dependency conflicts with the OpenPAVE repo-level `.venv`:
+
+```bash
+cd /path/to/OpenPAVE
+
+python3 -m venv .venv-vllm
+source .venv-vllm/bin/activate
+python3 -m pip install -U pip
+python3 -m pip install -U vllm
+python3 -m pip check
+```
+
+Start vLLM with the default Stage 3 model:
+
+```bash
+source .venv-vllm/bin/activate
+
+vllm serve llava-hf/llava-v1.6-mistral-7b-hf \
+  --port 8000 \
+  --dtype auto
+```
+
+For older vLLM installs that do not provide `vllm serve`, use the OpenAI-compatible API server entry point:
+
+```bash
+source .venv-vllm/bin/activate
+
+python3 -m vllm.entrypoints.openai.api_server \
+  --model llava-hf/llava-v1.6-mistral-7b-hf \
+  --port 8000 \
+  --dtype auto
+```
+
+Verify the endpoint from another terminal:
+
+```bash
+curl -s http://localhost:8000/v1/models
+```
+
+If vLLM fails with an `openai.types.responses` import error, the vLLM environment has an incompatible `openai` package version. Recreate `.venv-vllm` or reinstall vLLM and OpenAI SDK together in that separate environment.
+
 ## Physical PuppyPi Validation
 
 Start the PuppyPi ROS2 controller and vLLM backend first, then run:
