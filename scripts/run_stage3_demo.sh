@@ -249,9 +249,15 @@ fi
 
 start_process "openpave-ui" "$LOG_DIR/openpave-ui.log" "${UI_CMD[@]}"
 
-wait_for_http "OpenPAVE UI" "http://127.0.0.1:${UI_PORT}/pave" 80 0.25 || {
-  warn "OpenPAVE UI failed health check; inspect $LOG_DIR/openpave-ui.log"
+wait_for_http "live-vlm-webui" "http://127.0.0.1:${UI_PORT}/" 80 0.25 || {
+  warn "live-vlm-webui failed health check; inspect $LOG_DIR/openpave-ui.log"
 }
+
+if http_get "http://127.0.0.1:${UI_PORT}/pave"; then
+  log "OpenPAVE console ready: http://127.0.0.1:${UI_PORT}/pave"
+else
+  warn "OpenPAVE /pave console is not available in the current live-vlm-webui checkout"
+fi
 
 cat <<EOF
 

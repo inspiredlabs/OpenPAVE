@@ -170,7 +170,7 @@ http://127.0.0.1:8090/pave
 
 Use `/` for the full upstream `live-vlm-webui`.
 
-Use `/pave` for the lightweight OpenPAVE console.
+Use `/pave` for the lightweight OpenPAVE console when the checked-out `ui` submodule includes the Stage 2 console patch. If `/` works but `/pave` returns 404, the current `live-vlm-webui` checkout does not include the OpenPAVE console route.
 
 ## Runtime Files
 
@@ -241,7 +241,7 @@ The launcher checks:
 
 ```text
 http://127.0.0.1:7071/healthz
-http://127.0.0.1:8090/pave
+http://127.0.0.1:8090/
 ```
 
 It also probes the configured OpenAI-compatible VLM endpoint:
