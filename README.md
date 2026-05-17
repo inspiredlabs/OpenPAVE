@@ -2,15 +2,15 @@
 
 ## A developer-friendly open edge workflow for local VLA experimentation on Arm computing platforms
 
-OpenPAVE is a local-first, cloud-free reference workflow for connecting robot endpoints, edge inference devices, ROS2 communication, VLM/VLA reasoning, and observability tooling into an end-to-end Physical AI experimentation path.
+OpenPAVE is a local-first, cloud-free reference workflow for validating Physical AI experiments across ROS2 robot/sensor endpoints, Arm-based edge inference nodes, VLM/VLA reasoning, adapter-based runtime control, and observability tooling.
 
 This project is intended for developers, hobbyists, and small teams who want to experiment with upper-layer VLA / VLM applications without relying on expensive commercial robotics platforms.
 
 ## Project positioning
 
-OpenPAVE is positioned as a local, developer-controlled Physical AI reference workflow built on open-source software commonly used across the Arm/Linux robotics ecosystem. It is intended to show how robot endpoints, edge inference devices, ROS2 communication, prompt-driven VLM/VLA logic, and observability tooling can be composed into an end-to-end workflow for demos, research, PoCs, and architecture validation.
+OpenPAVE is positioned as a local, developer-controlled Physical AI reference workflow built on open-source software commonly used across the Arm/Linux robotics ecosystem. It is intended to show how ROS2 robot/sensor endpoints, Arm-based edge inference nodes, prompt-driven VLM/VLA logic, adapter-based runtime control, and observability tooling can be composed into an end-to-end workflow for demos, research, PoCs, and architecture validation.
 
-This is a reference workflow perspective, not an official Arm position or product statement. PuppyPi is the first physical robot target used to validate the workflow, but the architecture is expected to expand toward additional robot targets and compute devices through clearer runtime contracts and robot adapters.
+This is a reference workflow perspective, not an official Arm position or product statement. The current DGX Spark + PuppyPi setup is a validated reference implementation, not the product boundary of OpenPAVE. PuppyPi is the first validated ROS2 robot endpoint, and DGX Spark is the first validated Arm-based edge inference node. The architecture is expected to expand toward additional robot/sensor endpoints and edge inference hardware through clearer runtime contracts and robot adapters.
 
 
 ## Project highlights
@@ -18,13 +18,14 @@ This is a reference workflow perspective, not an official Arm position or produc
 - Provides a lower-cost and more accessible path for developers to prototype Physical AI applications
 - Uses edge-side compute for local AI inference, reducing dependence on cloud connectivity
 - Leverages an open-source Live WebUI to accelerate PoC integration and visualisation
-- Uses standard ROS2 communication between the robot and the edge server for interoperability and extensibility
+- Uses standard ROS2 communication between robot/sensor endpoints and the edge inference node for interoperability and extensibility
 - Uses prompt-driven task customisation to explore how general-purpose VLMs can adapt to robotics workflows
-- Treats the current PuppyPi setup as the first adapter target, not the final hardware boundary
-- Aims to support future experiments across multiple local compute devices and robot endpoints
-- Split the system cleanly into two roles:
-   - VLA Observability UI: Enables users to easily switch between models, try different prompts, and monitor both inference outputs and performance metrics—speeding up debugging and validation.
-   - VLA Control Daemon: Translates VLA/VLM outputs into executable ROS 2 commands to reliably control the PuppyPi robot dog, and serves as a deployable, reusable control core.
+- Treats the current PuppyPi setup as the first validated adapter target, not the final hardware boundary
+- Aims to support future experiments across multiple local inference nodes, robot endpoints, and sensor inputs
+- Splits the system into replaceable roles:
+   - ROS2 Robot / Sensor Endpoint: Provides sensor streams and accepts ROS2 command interfaces through an adapter.
+   - Edge Inference / Observability Node: Runs local VLM/VLA inference, displays live streams, and exposes developer-facing runtime feedback.
+   - OpenPAVE Runtime Control Layer: Normalizes intent, dispatches through robot adapters, and records command/state feedback.
 
 ## What this project is
 
@@ -42,41 +43,71 @@ OpenPAVE is not intended to be:
 
 Instead, it is a developer-oriented PoC framework for experimentation, integration, and learning.
 
-## Current showcase
+## Hardware scope
 
-The current showcase uses:
+The current DGX Spark + PuppyPi setup is a validation target, not a product scope definition.
 
-- an RPi-based robot endpoint
+OpenPAVE is designed around replaceable roles:
+
+1. **ROS2 Robot / Sensor Endpoint**
+   - provides camera, depth, audio, lidar, robot state, or other ROS2 sensor streams
+   - accepts ROS2 service/topic commands through an OpenPAVE adapter
+   - current validation target: PuppyPi camera and `puppy_control`
+
+2. **Edge Inference / Observability Node**
+   - runs local inference through an OpenAI-compatible VLM API
+   - displays live streams, prompts, inference output, resource metrics, and runtime feedback
+   - current validation target: DGX Spark running vLLM and LLaVA
+
+3. **OpenPAVE Runtime Control Layer**
+   - receives high-level intent from the UI, VLM output, scripts, or tests
+   - validates intent schema and dispatches commands through adapter contracts
+   - writes command result and robot/sensor state feedback for observability and future benchmarks
+
+Robot adapters are intended to become the main contribution boundary for supporting new ROS2 robot/sensor endpoints and hardware platforms. The first inference backend contract is an OpenAI-compatible VLM API, which keeps the workflow simple while allowing different local serving stacks and edge inference runtimes.
+
+## Current validated implementation
+
+The current validated implementation uses:
+
+- PuppyPi as the first ROS2 robot endpoint
+- DGX Spark as the first Arm-based edge inference node
 - ROS2 for communication and streaming integration
 - a modified Live WebUI as the interactive frontend
 - edge-side VLA / VLM inference running on a separate compute platform
 - prompt-driven tasks such as scene understanding, object recognition, and navigation suggestion
 
-The robot platform used in the demo is only a showcase vehicle. The core idea of the project is the software workflow itself, which can be adapted to other RPi-based or Arm-based Linux systems.
+The robot and inference platforms used in the demo are validation vehicles. The core idea of the project is the software workflow itself, which can be adapted to other ROS2 robot/sensor endpoints and Arm-based edge inference nodes.
 
 ## System overview
 
-OpenPAVE currently consists of three main parts:
+OpenPAVE currently consists of three replaceable roles:
 
-1. **Live WebUI**
-   - modified from the open-source `live-vlm-webui` project
-   - used for video display, prompt interaction, and model output visualisation
+1. **ROS2 Robot / Sensor Endpoint**
+   - provides sensor streams such as camera input
+   - runs robot-side ROS2 control interfaces
+   - current implementation: PuppyPi
 
-2. **ROS2 communication**
-   - connects the robot side and the edge inference side
-   - handles real-time message exchange and integration between components
+2. **Edge Inference / Observability Node**
+   - runs the VLM/VLA inference backend through an OpenAI-compatible API
+   - provides video display, prompt interaction, result visualisation, and resource metrics
+   - current implementation: DGX Spark + vLLM + modified `live-vlm-webui`
 
-3. **Robot-side integration**
-   - captures and streams robot camera data
-   - supports robot control and future extensions for action generation or closed-loop interaction
+3. **OpenPAVE Runtime Control Layer**
+   - receives and validates high-level intent
+   - dispatches commands through robot adapters
+   - records command result and robot/sensor state feedback
 
 ### High-level flow
 
-Robot-side camera stream  
-→ ROS2 communication  
+ROS2 robot/sensor stream  
 → edge-side VLA / VLM inference  
-→ output shown in the web UI  
-→ optional task-specific prompt response or navigation suggestion
+→ OpenPAVE UI / observability  
+→ intent schema  
+→ runtime control daemon  
+→ robot adapter  
+→ ROS2 command interface  
+→ command result and robot/sensor state feedback
 
 ## Development environment
 
@@ -294,7 +325,7 @@ The repository root keeps only the main `README.md` as the entry point. Supporti
 
 ## Documentation guide
 
-- `docs/architecture.md`: Current high-level architecture notes and role split across the UI, control daemon, robot side, and runtime flow.
+- `docs/architecture.md`: Current high-level architecture notes and role split across robot/sensor endpoints, edge inference/observability, and runtime control.
 - `docs/arm-physical-ai-ref-workflow.md`: Reference workflow framing for local edge Physical AI on Arm/Linux ecosystems. This is not an official Arm position.
 - `docs/intent_schema.md`: Stage 1 intent schema v0.1, including supported intent types, metadata, validation rules, and examples.
 - `docs/live-vlm-webui_hook.md`: Notes for the server-side hook that forwards selected VLM outputs such as `STOP` and `TROT` to Intent Ingress.
@@ -312,8 +343,8 @@ The repository root keeps only the main `README.md` as the entry point. Supporti
 
 OpenPAVE is currently intended to support exploration of use cases such as:
 
-* real-time scene understanding
-* object recognition in live robot streams
+* real-time scene and sensor understanding
+* object recognition in live robot/sensor streams
 * navigation suggestion based on visual context
 * prompt-driven task switching for robotics scenarios
 * edge-side benchmarking of VLA / VLM workflows
@@ -323,7 +354,7 @@ OpenPAVE is currently intended to support exploration of use cases such as:
 * Benchmark different VLA / VLM models under the same live robotics scenario across edge computing platforms
 * Investigate how real-time communication can be improved for lower latency, higher reliability, and better fault tolerance
 * Extend the workflow into additional Physical AI PoCs to validate reuse across different application scenarios
-* Add additional hardware targets and compute devices to validate the workflow beyond the initial PuppyPi setup
+* Add additional ROS2 robot/sensor endpoints and Arm-based edge inference nodes to validate the workflow beyond the initial PuppyPi and DGX Spark setup
 * Formalise robot adapters, intent schemas, and command feedback so the workflow can be reused across different local Physical AI experiments
 
 ## Target users
@@ -353,7 +384,7 @@ OpenPAVE is best understood as:
 * a developer-friendly edge VLA workflow
 * a reproducible PoC path for Physical AI exploration
 * a practical way to study how open-source software and affordable edge hardware can support real-world AI robotics use cases
-* a non-official Arm/Linux ecosystem reference workflow for local Physical AI demos, research, PoCs, and architecture validation
+* a non-official Arm/Linux ecosystem reference workflow for local Physical AI validation across ROS2 robot/sensor endpoints and Arm-based edge inference nodes
 
 ## Status
 
