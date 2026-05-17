@@ -309,6 +309,7 @@ The repository root keeps only the main `README.md` as the entry point. Supporti
 │  ├─ live-vlm-webui-hook.md
 │  ├─ pave-console.md
 │  ├─ pave_ver1_readme.md
+│  ├─ prompts-and-scenarios.md
 │  ├─ robot-adapters.md
 │  ├─ robot-feedback.md
 │  ├─ runbook.md
@@ -323,6 +324,8 @@ The repository root keeps only the main `README.md` as the entry point. Supporti
 ├─ control_daemon/
 ├─ intent_ingress/
 ├─ pave_runtime/
+├─ prompts/
+├─ scenarios/
 ├─ scripts/
 ├─ third_party/
 └─ ui/
@@ -360,6 +363,7 @@ On the PuppyPi side, start the ROS2 controller with:
 - `docs/live-vlm-webui-hook.md`: Notes for the server-side hook that forwards selected VLM outputs such as `STOP` and `TROT` to Intent Ingress.
 - `docs/pave-console.md`: Stage 2 lightweight OpenPAVE console design and backend reuse notes.
 - `docs/pave_ver1_readme.md`: Preserved Ver1 MVP README for the original demo/runtime flow.
+- `docs/prompts-and-scenarios.md`: Stage 3B prompt preset and demo scenario asset guide.
 - `docs/robot-adapters.md`: Robot Adapter interface contract, current PuppyPi/mock adapters, and guidance for adding future hardware targets.
 - `docs/robot-feedback.md`: Robot state and command result feedback model used by Stage 1 and surfaced in Stage 2.
 - `docs/runbook.md`: Stable MVP runbook for operating the PuppyPi-side and control-side flow.

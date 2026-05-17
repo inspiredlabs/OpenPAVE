@@ -1,0 +1,34 @@
+{
+  "id": "object_recognition_camera_v0",
+  "version": "0.1",
+  "title": "Camera Object Recognition",
+  "stage": "3B",
+  "description": "Observation-only scenario for identifying relevant objects in a robot camera stream.",
+  "prompt_ref": "prompts/object-recognition.json",
+  "expected_intents": [],
+  "safety_constraints": {
+    "physical_robot_motion_allowed": false,
+    "must_not_emit_robot_intent": true
+  },
+  "robot_sensor_endpoint": {
+    "type": "ROS2 sensor endpoint",
+    "sensors": ["camera"],
+    "optional_sensors": ["depth", "robot_state"],
+    "validated_target": "PuppyPi camera stream"
+  },
+  "inference_node": {
+    "api_contract": "OpenAI-compatible VLM API",
+    "default_api_base": "http://localhost:8000/v1",
+    "default_model": "llava-hf/llava-v1.6-mistral-7b-hf"
+  },
+  "adapter": {
+    "name": "none",
+    "required": false
+  },
+  "runtime_profile": "configs/mock.env",
+  "success_criteria": [
+    "The model returns compact JSON with an objects array.",
+    "Detected objects include name, confidence, and approximate location.",
+    "No robot command is forwarded automatically."
+  ]
+}

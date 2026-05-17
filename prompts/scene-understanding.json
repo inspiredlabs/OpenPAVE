@@ -1,0 +1,19 @@
+{
+  "id": "scene_understanding_v0",
+  "version": "0.1",
+  "title": "Scene Understanding",
+  "task_type": "observation",
+  "output_contract": {
+    "format": "short_text",
+    "robot_intent_output": false
+  },
+  "safety": {
+    "physical_robot_control": false,
+    "notes": "This prompt is for observation only and should not be forwarded as robot intent."
+  },
+  "sensor_assumptions": {
+    "supported_sensors": ["camera", "depth", "lidar", "audio", "robot_state"],
+    "minimum_required_sensor": "camera"
+  },
+  "prompt": "Describe the current robot environment in one concise sentence. Focus on visible obstacles, people, open space, and anything that could affect robot movement. Do not output robot control commands."
+}

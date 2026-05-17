@@ -1,0 +1,24 @@
+{
+  "id": "robot_commander_gesture_v0",
+  "version": "0.1",
+  "title": "Robot Commander Gesture Control",
+  "task_type": "intent_control",
+  "output_contract": {
+    "format": "single_intent",
+    "allowed_intents": ["STOP", "TROT"],
+    "fallback_intent": "STOP",
+    "reject_extra_text": true
+  },
+  "safety": {
+    "physical_robot_control": true,
+    "ambiguous_output_policy": "STOP",
+    "requires_runtime_confirmation_for": ["TROT"],
+    "notes": "Only output TROT when the thumbs-up gesture is clearly visible. Open palm or uncertainty must be STOP."
+  },
+  "sensor_assumptions": {
+    "primary_sensor": "camera",
+    "view": "robot-facing or operator-facing live stream",
+    "required_visual_evidence": ["thumbs-up hand gesture", "open palm with five fingers"]
+  },
+  "prompt": "You are controlling a robot from a camera view. If you clearly see a thumbs-up hand gesture, output exactly the single word TROT. If you clearly see an open hand with five fingers, palm facing camera, output exactly the single word STOP. Otherwise output exactly the single word STOP. No other text, no punctuation, no markdown."
+}

@@ -1,0 +1,35 @@
+{
+  "id": "mock_intent_stop_trot_v0",
+  "version": "0.1",
+  "title": "Mock STOP/TROT Intent Validation",
+  "stage": "3B",
+  "description": "Software-only validation that the OpenPAVE runtime can route STOP and TROT through Intent Ingress, Control Daemon, and MockAdapter without physical robot motion.",
+  "prompt_ref": "prompts/intent-stop-trot.json",
+  "expected_intents": ["STOP", "TROT"],
+  "safety_constraints": {
+    "physical_robot_motion_allowed": false,
+    "required_adapter": "mock",
+    "fallback_intent": "STOP"
+  },
+  "robot_sensor_endpoint": {
+    "type": "none",
+    "required": false,
+    "notes": "No physical robot or sensor stream is required."
+  },
+  "inference_node": {
+    "api_contract": "OpenAI-compatible VLM API",
+    "default_api_base": "http://localhost:8000/v1",
+    "default_model": "llava-hf/llava-v1.6-mistral-7b-hf",
+    "required_for_manual_curl_validation": false
+  },
+  "adapter": {
+    "name": "mock",
+    "capabilities": ["stop", "trot", "home", "move"]
+  },
+  "runtime_profile": "configs/mock.env",
+  "success_criteria": [
+    "Intent Ingress accepts normalized STOP and TROT payloads.",
+    "Control Daemon writes command result feedback.",
+    "MockAdapter reports completed actions without Docker, ROS2, or robot hardware."
+  ]
+}

@@ -111,16 +111,16 @@ Move PAVE from a working demo pipeline toward a repeatable Physical AI experimen
 
 ### Stage 3B: Prompt Presets and Demo Scenarios
 
-- [ ] Add a `prompts/` directory.
-- [ ] Add baseline prompt presets for stable intent output.
-- [ ] Add prompts for scene understanding, object recognition, navigation suggestion, and stop/trot control.
-- [ ] Add a `scenarios/` directory.
-- [ ] Define demo scenarios in a structured format such as YAML or JSON.
-- [ ] Include expected intents, safety constraints, model prompt, robot/sensor endpoint assumptions, and success criteria.
-- [ ] Include sensor input assumptions such as camera, depth, lidar, audio, robot state, or other ROS2 streams.
-- [ ] Include inference node assumptions such as OpenAI-compatible API endpoint, model, and serving backend.
-- [ ] Include adapter assumptions such as robot target, supported capabilities, and command interface.
-- [ ] Document how to add a new prompt or scenario.
+- [x] Add a `prompts/` directory.
+- [x] Add baseline prompt presets for stable intent output.
+- [x] Add prompts for scene understanding, object recognition, navigation suggestion, and stop/trot control.
+- [x] Add a `scenarios/` directory.
+- [x] Define demo scenarios in a structured format such as YAML or JSON.
+- [x] Include expected intents, safety constraints, model prompt, robot/sensor endpoint assumptions, and success criteria.
+- [x] Include sensor input assumptions such as camera, depth, lidar, audio, robot state, or other ROS2 streams.
+- [x] Include inference node assumptions such as OpenAI-compatible API endpoint, model, and serving backend.
+- [x] Include adapter assumptions such as robot target, supported capabilities, and command interface.
+- [x] Document how to add a new prompt or scenario.
 
 ### Stage 3C: Benchmark Harness
 

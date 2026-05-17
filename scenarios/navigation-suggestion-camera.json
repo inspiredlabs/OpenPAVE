@@ -1,0 +1,35 @@
+{
+  "id": "navigation_suggestion_camera_v0",
+  "version": "0.1",
+  "title": "Camera Navigation Suggestion",
+  "stage": "3B",
+  "description": "Operator-assist scenario that asks the VLM for a safe navigation suggestion without directly controlling the robot.",
+  "prompt_ref": "prompts/navigation-suggestion.json",
+  "expected_intents": [],
+  "safety_constraints": {
+    "physical_robot_motion_allowed": false,
+    "must_not_emit_robot_intent": true,
+    "operator_confirmation_required": true
+  },
+  "robot_sensor_endpoint": {
+    "type": "ROS2 robot or sensor endpoint",
+    "sensors": ["camera"],
+    "optional_sensors": ["depth", "lidar", "robot_state"],
+    "validated_target": "PuppyPi camera stream"
+  },
+  "inference_node": {
+    "api_contract": "OpenAI-compatible VLM API",
+    "default_api_base": "http://localhost:8000/v1",
+    "default_model": "llava-hf/llava-v1.6-mistral-7b-hf"
+  },
+  "adapter": {
+    "name": "none",
+    "required": false
+  },
+  "runtime_profile": "configs/mock.env",
+  "success_criteria": [
+    "The model suggests a safe direction or hold position in natural language.",
+    "The result includes a brief reason.",
+    "No robot command is forwarded automatically."
+  ]
+}

@@ -1,0 +1,19 @@
+{
+  "id": "navigation_suggestion_v0",
+  "version": "0.1",
+  "title": "Navigation Suggestion",
+  "task_type": "planning_suggestion",
+  "output_contract": {
+    "format": "short_text",
+    "robot_intent_output": false
+  },
+  "safety": {
+    "physical_robot_control": false,
+    "notes": "This prompt provides operator guidance only. A separate intent-control prompt or scenario must be used for robot actuation."
+  },
+  "sensor_assumptions": {
+    "supported_sensors": ["camera", "depth", "lidar", "robot_state"],
+    "minimum_required_sensor": "camera"
+  },
+  "prompt": "Suggest a safe next navigation choice for the robot based on the current sensor view. Mention the reason briefly. Do not output direct robot control commands."
+}

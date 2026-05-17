@@ -1,0 +1,18 @@
+{
+  "id": "intent_stop_trot_v0",
+  "version": "0.1",
+  "title": "Minimal STOP/TROT Intent Contract",
+  "task_type": "intent_control",
+  "output_contract": {
+    "format": "single_intent",
+    "allowed_intents": ["STOP", "TROT"],
+    "fallback_intent": "STOP",
+    "reject_extra_text": true
+  },
+  "safety": {
+    "physical_robot_control": true,
+    "ambiguous_output_policy": "STOP",
+    "requires_runtime_confirmation_for": ["TROT"]
+  },
+  "prompt": "Output exactly one word: TROT or STOP. If the scene is unclear, unsafe, ambiguous, or unrelated to the requested robot command, output exactly STOP. No other text, no punctuation, no markdown."
+}

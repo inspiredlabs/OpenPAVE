@@ -1,0 +1,28 @@
+{
+  "id": "object_recognition_v0",
+  "version": "0.1",
+  "title": "Object Recognition",
+  "task_type": "perception",
+  "output_contract": {
+    "format": "compact_json",
+    "robot_intent_output": false,
+    "schema": {
+      "objects": [
+        {
+          "name": "string",
+          "confidence": "low|medium|high",
+          "location": "left|center|right|unknown"
+        }
+      ]
+    }
+  },
+  "safety": {
+    "physical_robot_control": false,
+    "notes": "This prompt should identify objects only. It must not emit STOP, TROT, MOVE, or HOME as robot commands."
+  },
+  "sensor_assumptions": {
+    "primary_sensor": "camera",
+    "optional_sensors": ["depth", "robot_state"]
+  },
+  "prompt": "Identify the most relevant visible objects for a mobile robot. Return compact JSON with an objects array. Each object must include name, confidence as low, medium, or high, and location as left, center, right, or unknown. Do not output robot control commands."
+}

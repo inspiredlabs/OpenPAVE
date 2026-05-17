@@ -1,0 +1,50 @@
+{
+  "id": "puppypi_gesture_stop_trot_v0",
+  "version": "0.1",
+  "title": "PuppyPi Gesture STOP/TROT Validation",
+  "stage": "3B",
+  "description": "Physical validation of gesture-driven STOP/TROT control with PuppyPi as the first ROS2 robot endpoint.",
+  "prompt_ref": "prompts/robot-commander-gesture.json",
+  "expected_intents": ["STOP", "TROT"],
+  "safety_constraints": {
+    "physical_robot_motion_allowed": true,
+    "fallback_intent": "STOP",
+    "trot_requires_confirmation": true,
+    "recommended_env": {
+      "INTENT_FORWARDING_ENABLED": "1",
+      "TROT_CONFIRMATIONS": "2",
+      "TROT_CONFIRMATION_WINDOW_MS": "1500"
+    }
+  },
+  "robot_sensor_endpoint": {
+    "type": "ROS2 robot endpoint",
+    "validated_target": "PuppyPi",
+    "sensors": ["camera"],
+    "stream": {
+      "default_url_pattern": "http://${ROBOT_IP_ADDRESS}:8080/stream?topic=/usb_cam/image_raw"
+    },
+    "control_interfaces": [
+      "/puppy_control/set_running",
+      "/puppy_control/set_mark_time",
+      "/puppy_control/go_home"
+    ]
+  },
+  "inference_node": {
+    "api_contract": "OpenAI-compatible VLM API",
+    "default_api_base": "http://localhost:8000/v1",
+    "default_model": "llava-hf/llava-v1.6-mistral-7b-hf",
+    "validated_target": "DGX Spark running vLLM"
+  },
+  "adapter": {
+    "name": "puppypi",
+    "capabilities": ["stop", "trot", "home", "move"],
+    "command_path": "Dockerized ROS2 CLI reference adapter"
+  },
+  "runtime_profile": "configs/puppypi.env",
+  "success_criteria": [
+    "Open palm or uncertainty emits STOP.",
+    "Clear thumbs-up emits TROT only after runtime confirmation policy is satisfied.",
+    "Command result feedback reaches completed status.",
+    "Robot can be stopped with STOP after TROT."
+  ]
+}
