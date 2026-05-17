@@ -51,6 +51,48 @@ class BenchmarkRunnerTests(unittest.TestCase):
 
         self.assertEqual(result, 2)
 
+    def test_capture_runtime_env_keeps_known_openpave_keys(self):
+        env = {
+            "ROBOT_ADAPTER": "mock",
+            "UI_MODEL": "model-a",
+            "UNRELATED": "ignored",
+        }
+
+        captured = self.runner.capture_runtime_env(env)
+
+        self.assertEqual(captured, {"ROBOT_ADAPTER": "mock", "UI_MODEL": "model-a"})
+
+    def test_benchmark_records_include_runtime_env(self):
+        def fake_post_intent(url, payload, timeout_sec):
+            return 200, {"status": "ok"}
+
+        def fake_wait_for_command_result(**kwargs):
+            return {
+                "request_id": kwargs["request_id"],
+                "intent": "STOP",
+                "status": "completed",
+            }, self.runner.time.monotonic()
+
+        self.runner.post_intent = fake_post_intent
+        self.runner.wait_for_command_result = fake_wait_for_command_result
+        self.runner.read_json_file = lambda path: {"state": "idle"}
+
+        records = self.runner.benchmark_intents(
+            scenario={"id": "mock", "prompt_ref": "prompts/intent-stop-trot.json"},
+            prompt={"id": "prompt"},
+            intents=["STOP"],
+            intent_url="http://127.0.0.1:7071/intent",
+            command_result_path="/tmp/result.json",
+            robot_state_path="/tmp/state.json",
+            timeout_sec=1.0,
+            poll_sec=0.01,
+            run_id="run-1",
+            runtime_env={"ROBOT_ADAPTER": "mock", "UI_MODEL": "model-a"},
+        )
+
+        self.assertEqual(records[0]["runtime_env"]["ROBOT_ADAPTER"], "mock")
+        self.assertEqual(records[0]["runtime_env"]["UI_MODEL"], "model-a")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -47,6 +47,72 @@ The runner writes JSONL output under:
 benchmark-results/
 ```
 
+## Summarize Benchmark Results
+
+Summarize one or more benchmark result files:
+
+```bash
+python3 scripts/summarize_benchmarks.py benchmark-results/*.jsonl
+```
+
+The default grouping compares results by scenario and adapter:
+
+```text
+scenario.id    adapter.name    total    passed    failed    pass_rate    avg_latency_ms
+```
+
+Use `--group-by` to compare different experiment dimensions.
+
+Compare result files whose scenarios declare different models under the same scenario:
+
+```bash
+python3 scripts/summarize_benchmarks.py benchmark-results/*.jsonl \
+  --group-by scenario.id \
+  --group-by inference_node.default_model
+```
+
+Compare by the model value captured from the actual runtime environment:
+
+```bash
+python3 scripts/summarize_benchmarks.py benchmark-results/*.jsonl \
+  --group-by scenario.id \
+  --group-by runtime_env.UI_MODEL
+```
+
+Compare result files whose scenarios declare different robot or sensor endpoints:
+
+```bash
+python3 scripts/summarize_benchmarks.py benchmark-results/*.jsonl \
+  --group-by scenario.id \
+  --group-by robot_sensor_endpoint.validated_target
+```
+
+Compare result files whose scenarios declare different Arm-based inference nodes:
+
+```bash
+python3 scripts/summarize_benchmarks.py benchmark-results/*.jsonl \
+  --group-by scenario.id \
+  --group-by inference_node.validated_target
+```
+
+Emit machine-readable summary output:
+
+```bash
+python3 scripts/summarize_benchmarks.py benchmark-results/*.jsonl --format json
+```
+
+## Add Benchmark Gates
+
+Use threshold options when you want the summary command to fail on regressions:
+
+```bash
+python3 scripts/summarize_benchmarks.py benchmark-results/*.jsonl \
+  --min-pass-rate 1.0 \
+  --max-avg-latency-ms 500
+```
+
+The command exits with status `1` if any grouped result falls below the pass-rate threshold or exceeds the average-latency threshold. This is useful as a lightweight release check for the control path.
+
 ## Run Physical PuppyPi Benchmark
 
 Physical scenarios are blocked unless explicitly allowed:
@@ -71,6 +137,7 @@ Each JSONL row includes:
 - Intent Ingress HTTP response
 - command result feedback
 - robot state feedback
+- selected runtime environment values such as `ROBOT_ADAPTER`, `UI_MODEL`, `UI_API_BASE`, `ROS_DOMAIN_ID`, and ROS Docker image settings
 - robot/sensor endpoint assumptions
 - inference node assumptions
 - adapter assumptions
@@ -101,4 +168,4 @@ python3 scripts/run_benchmark.py scenarios/mock-intent-stop-trot.json \
 
 ## Current Scope
 
-Stage 3C.1 measures control-path behavior. VLM inference latency, camera frame replay, FPS, and GPU usage should be added in a later Stage 3C slice once benchmark input datasets are defined.
+Stage 3C.1 measures control-path behavior and can summarize results by scenario metadata such as model, robot/sensor endpoint, adapter, and inference node. VLM inference latency, camera frame replay, FPS, GPU usage, and model output quality should be added in a later Stage 3C slice once benchmark input datasets are defined.

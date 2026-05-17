@@ -294,6 +294,43 @@ Benchmark results are written to:
 benchmark-results/
 ```
 
+Summarize one or more benchmark result files:
+
+```bash
+python3 scripts/summarize_benchmarks.py benchmark-results/*.jsonl
+```
+
+Compare model, endpoint, or inference-node dimensions by changing the grouping.
+This compares benchmark result files by their scenario metadata; Stage 3C.1 does not replay camera frames or measure VLM output quality yet.
+
+```bash
+python3 scripts/summarize_benchmarks.py benchmark-results/*.jsonl \
+  --group-by scenario.id \
+  --group-by inference_node.default_model
+
+python3 scripts/summarize_benchmarks.py benchmark-results/*.jsonl \
+  --group-by scenario.id \
+  --group-by runtime_env.UI_MODEL
+
+python3 scripts/summarize_benchmarks.py benchmark-results/*.jsonl \
+  --group-by scenario.id \
+  --group-by robot_sensor_endpoint.validated_target
+
+python3 scripts/summarize_benchmarks.py benchmark-results/*.jsonl \
+  --group-by scenario.id \
+  --group-by inference_node.validated_target
+```
+
+Use threshold gates when validating a release candidate:
+
+```bash
+python3 scripts/summarize_benchmarks.py benchmark-results/*.jsonl \
+  --min-pass-rate 1.0 \
+  --max-avg-latency-ms 500
+```
+
+The command returns a non-zero exit code if any grouped result violates the gate.
+
 ### Physical PuppyPi Benchmark
 
 Only run this after the PuppyPi ROS2 controller is running and the robot is in a safe test area.

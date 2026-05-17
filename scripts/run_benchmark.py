@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import statistics
 import sys
 import time
@@ -20,6 +21,20 @@ DEFAULT_INTENT_URL = "http://127.0.0.1:7071/intent"
 DEFAULT_COMMAND_RESULT_PATH = "/tmp/vla_command_result.json"
 DEFAULT_ROBOT_STATE_PATH = "/tmp/vla_robot_state.json"
 RESULT_SCHEMA_VERSION = "0.1"
+RUNTIME_ENV_KEYS = [
+    "ROBOT_ADAPTER",
+    "ROBOT_IP_ADDRESS",
+    "UI_MODEL",
+    "UI_API_BASE",
+    "INTENT_INGRESS_URL",
+    "INTENT_PATH",
+    "COMMAND_RESULT_PATH",
+    "ROBOT_STATE_PATH",
+    "ROS_DOMAIN_ID",
+    "RMW_IMPLEMENTATION",
+    "ROS_SVC_IMAGE",
+    "ROS_PUB_IMAGE",
+]
 
 
 def now_iso() -> str:
@@ -50,6 +65,11 @@ def read_json_file(path: str) -> dict[str, Any] | None:
         return payload if isinstance(payload, dict) else None
     except (FileNotFoundError, json.JSONDecodeError, OSError):
         return None
+
+
+def capture_runtime_env(environ: dict[str, str] | None = None) -> dict[str, str]:
+    environ = environ if environ is not None else os.environ
+    return {key: environ[key] for key in RUNTIME_ENV_KEYS if key in environ}
 
 
 def post_intent(url: str, payload: dict[str, Any], timeout_sec: float) -> tuple[int, dict[str, Any]]:
@@ -107,8 +127,10 @@ def benchmark_intents(
     timeout_sec: float,
     poll_sec: float,
     run_id: str | None = None,
+    runtime_env: dict[str, str] | None = None,
 ) -> list[dict[str, Any]]:
     run_id = run_id or str(uuid.uuid4())
+    runtime_env = runtime_env or {}
     records: list[dict[str, Any]] = []
 
     for expected_intent in intents:
@@ -189,6 +211,7 @@ def benchmark_intents(
                     "command_result_path": command_result_path,
                     "robot_state_path": robot_state_path,
                 },
+                "runtime_env": runtime_env,
                 "inference_node": scenario.get("inference_node", {}),
                 "robot_sensor_endpoint": scenario.get("robot_sensor_endpoint", {}),
                 "adapter": scenario.get("adapter", {}),
@@ -303,6 +326,7 @@ def main(argv: list[str] | None = None) -> int:
         timeout_sec=args.timeout_sec,
         poll_sec=args.poll_sec,
         run_id=run_id,
+        runtime_env=capture_runtime_env(),
     )
 
     output_path = build_output_path(resolve_repo_path(args.results_dir), scenario, run_id)
