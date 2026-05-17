@@ -139,6 +139,20 @@ OPENPAVE_CONFIG=configs/puppypi.env ./scripts/run_stage3_demo.sh
 
 `configs/puppypi.env` contains the PuppyPi adapter, robot IP address, VLM model/backend, ROS domain, RMW implementation, and ROS CLI Docker image settings.
 
+For physical robot safety, VLM-driven `TROT` forwarding requires repeated confirmation by default:
+
+```text
+INTENT_FORWARDING_ENABLED=1
+TROT_CONFIRMATIONS=2
+TROT_CONFIRMATION_WINDOW_MS=1500
+```
+
+`STOP` is still forwarded immediately. To disable VLM-to-robot forwarding during debugging:
+
+```bash
+OPENPAVE_CONFIG=configs/puppypi.env INTENT_FORWARDING_ENABLED=0 ./scripts/run_stage3_demo.sh
+```
+
 You can still override a profile value from the shell:
 
 ```bash
