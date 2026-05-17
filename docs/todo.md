@@ -29,8 +29,8 @@ Move PAVE from a working demo pipeline toward a repeatable Physical AI experimen
 - [x] Define required and optional fields.
 - [x] Add metadata fields such as source, timestamp, confidence, schema version, and request ID.
 - [x] Define validation rules for numeric parameters such as velocity, yaw, and duration.
-- [x] Add a shared Python intent model or schema helper used by both `intent-ingress` and `control-daemon`.
-- [x] Update `intent-ingress` to validate requests against the schema.
+- [x] Add a shared Python intent model or schema helper used by both `intent_ingress` and `control_daemon`.
+- [x] Update `intent_ingress` to validate requests against the schema.
 - [x] Update the control daemon to consume the normalized schema instead of ad hoc JSON.
 - [x] Add examples for valid and invalid intent payloads.
 
@@ -98,16 +98,16 @@ Move PAVE from a working demo pipeline toward a repeatable Physical AI experimen
 
 ### Stage 3A: Developer Runtime Launcher
 
-- [ ] Add a one-command Stage 2/Stage 3 demo launcher.
-- [ ] Start Intent Ingress, Control Daemon, and OpenPAVE UI server from one command.
-- [ ] Keep vLLM backend and robot-side ROS2 controller as external dependencies first.
-- [ ] Support configuration for robot adapter, robot IP address, model, API base, and runtime file paths.
-- [ ] Write logs to `.openpave/logs/`.
-- [ ] Add health checks for Intent Ingress and OpenPAVE UI.
-- [ ] Print the full UI URLs, including `/` and `/pave`.
-- [ ] Print runtime debug files such as `/tmp/vla_intent.json`, `/tmp/vla_command_result.json`, and `/tmp/vla_robot_state.json`.
-- [ ] Provide a clean shutdown path for child processes.
-- [ ] Document which services are managed by the launcher and which remain external.
+- [x] Add a one-command Stage 2/Stage 3 demo launcher.
+- [x] Start Intent Ingress, Control Daemon, and OpenPAVE UI server from one command.
+- [x] Keep vLLM backend and robot-side ROS2 controller as external dependencies first.
+- [x] Support configuration for robot adapter, robot IP address, model, API base, and runtime file paths.
+- [x] Write logs to `.openpave/logs/`.
+- [x] Add health checks for Intent Ingress and OpenPAVE UI.
+- [x] Print the full UI URLs, including `/` and `/pave`.
+- [x] Print runtime debug files such as `/tmp/vla_intent.json`, `/tmp/vla_command_result.json`, and `/tmp/vla_robot_state.json`.
+- [x] Provide a clean shutdown path for child processes.
+- [x] Document which services are managed by the launcher and which remain external.
 
 ### Stage 3B: Prompt Presets and Demo Scenarios
 

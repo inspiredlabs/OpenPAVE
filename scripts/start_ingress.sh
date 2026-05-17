@@ -1,4 +1,4 @@
 #!/usr/bin/env bash
 set -euo pipefail
-cd "$(dirname "$0")/../intent-ingress"
-python3 intent_ingress.py
+cd "$(dirname "$0")/.."
+python3 -m intent_ingress.server

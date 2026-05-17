@@ -60,7 +60,7 @@ Use it with:
 
 ```bash
 export ROBOT_ADAPTER=mock
-python3 control-daemon/pave_control_daemon_mvp.py
+python3 -m control_daemon.daemon
 ```
 
 Aliases:

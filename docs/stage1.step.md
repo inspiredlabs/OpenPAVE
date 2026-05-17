@@ -65,7 +65,7 @@ cd /path/to/OpenPAVE
 python3 -m venv .venv
 source .venv/bin/activate
 python3 -m pip install -U pip
-python3 -m pip install -r intent-ingress/requirements.txt
+python3 -m pip install -r intent_ingress/requirements.txt
 ```
 
 If you also want to validate the WebUI/VLM path during Stage 1, install the UI dependencies in the same repo-level virtual environment:
@@ -192,7 +192,7 @@ source .venv/bin/activate
 
 export INTENT_PATH=/tmp/vla_intent.json
 
-python3 intent-ingress/intent_ingress.py
+python3 -m intent_ingress.server
 ```
 
 Expected:
@@ -236,7 +236,7 @@ Then restart the current ingress:
 ```bash
 cd /path/to/OpenPAVE
 source .venv/bin/activate
-python3 intent-ingress/intent_ingress.py
+python3 -m intent_ingress.server
 ```
 
 Do not use `flask run` for this validation flow.
@@ -260,7 +260,7 @@ export INTENT_PATH=/tmp/vla_intent.json
 export COMMAND_RESULT_PATH=/tmp/vla_command_result.json
 export ROBOT_STATE_PATH=/tmp/vla_robot_state.json
 
-python3 control-daemon/pave_control_daemon_mvp.py
+python3 -m control_daemon.daemon
 ```
 
 Expected startup logs:
@@ -478,7 +478,7 @@ export INTENT_PATH=/tmp/vla_intent.json
 export COMMAND_RESULT_PATH=/tmp/vla_command_result.json
 export ROBOT_STATE_PATH=/tmp/vla_robot_state.json
 
-python3 control-daemon/pave_control_daemon_mvp.py
+python3 -m control_daemon.daemon
 ```
 
 Send:

@@ -5,6 +5,7 @@ venv/
 .env
 .DS_Store
 logs/
+.openpave/
 docker/
 pw_profile_livevlm/
 ui/live-vlm-webui/.venv/

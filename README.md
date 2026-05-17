@@ -117,7 +117,7 @@ For current OpenPAVE development, use one shared repo-level Python virtual envir
 python3 -m venv .venv
 source .venv/bin/activate
 python3 -m pip install -U pip
-python3 -m pip install -r intent-ingress/requirements.txt
+python3 -m pip install -r intent_ingress/requirements.txt
 python3 -m pip install -r ui/requirements.txt
 python3 -m pip install -e ui
 ```
@@ -128,7 +128,7 @@ Run the current Python tests from the repo root:
 python3 -B -m unittest discover
 ```
 
-The repo-level `.venv` is intended for local development across `intent-ingress`, `control-daemon`, shared runtime helpers, tests, and the Stage 2 lightweight console. Module-level requirements files should remain available for service-specific runtime or future deployment packaging. As OpenPAVE grows, individual services may later get separate dependency sets or containers, but the current Stage 1 and Stage 2 development workflow assumes a single shared virtual environment.
+The repo-level `.venv` is intended for local development across `intent_ingress`, `control_daemon`, shared runtime helpers, tests, and the Stage 2 lightweight console. Module-level requirements files should remain available for service-specific runtime or future deployment packaging. As OpenPAVE grows, individual services may later get separate dependency sets or containers, but the current Stage 1 and Stage 2 development workflow assumes a single shared virtual environment.
 
 For the UI dependencies, prefer Python 3.10 to 3.12. Very new Python versions may not have prebuilt wheels for packages such as `av`.
 
@@ -156,7 +156,7 @@ Stage 1B adds a robot adapter boundary. The default adapter is `puppypi`, which 
 ```bash
 cd /path/to/OpenPAVE
 source .venv/bin/activate
-python3 intent-ingress/intent_ingress.py
+python3 -m intent_ingress.server
 ```
 
 Health check:
@@ -181,7 +181,7 @@ export ROS_PUB_IMAGE=puppy-ros2-cli:humble
 export COMMAND_RESULT_PATH=/tmp/vla_command_result.json
 export ROBOT_STATE_PATH=/tmp/vla_robot_state.json
 
-python3 control-daemon/pave_control_daemon_mvp.py
+python3 -m control_daemon.daemon
 ```
 
 `ROBOT_ADAPTER=puppypi` is the default, but setting it explicitly makes the runtime path clear.
@@ -195,7 +195,7 @@ cd /path/to/OpenPAVE
 source .venv/bin/activate
 
 export ROBOT_ADAPTER=mock
-python3 control-daemon/pave_control_daemon_mvp.py
+python3 -m control_daemon.daemon
 ```
 
 The mock adapter prints actions such as `MOCK ACTION=STOP` or `MOCK ACTION=MOVE` instead of calling Docker or ROS2.
@@ -305,38 +305,65 @@ The repository root keeps only the main `README.md` as the entry point. Supporti
 ├─ docs/
 │  ├─ architecture.md
 │  ├─ arm-physical-ai-ref-workflow.md
-│  ├─ intent_schema.md
-│  ├─ live-vlm-webui_hook.md
-│  ├─ pave_console.md
+│  ├─ intent-schema.md
+│  ├─ live-vlm-webui-hook.md
+│  ├─ pave-console.md
 │  ├─ pave_ver1_readme.md
-│  ├─ robot_adapters.md
-│  ├─ robot_feedback.md
+│  ├─ robot-adapters.md
+│  ├─ robot-feedback.md
 │  ├─ runbook.md
 │  ├─ stage1.step.md
 │  ├─ stage2.step.md
-│  ├─ third_party_notices.md
+│  ├─ stage3.step.md
+│  ├─ third-party-notices.md
 │  └─ todo.md
-├─ control-daemon/
-├─ intent-ingress/
+├─ configs/
+│  ├─ mock.env
+│  └─ puppypi.env
+├─ control_daemon/
+├─ control-daemon/      # legacy script wrapper
+├─ intent_ingress/
+├─ intent-ingress/      # legacy script wrapper
 ├─ pave_runtime/
+├─ scripts/
 ├─ third_party/
 └─ ui/
+```
+
+Naming conventions:
+
+- Python packages use `snake_case`, such as `control_daemon`, `intent_ingress`, and `pave_runtime`.
+- Shell-facing scripts and GitHub document names use `kebab-case` where practical.
+- `control-daemon/` and `intent-ingress/` are retained as compatibility wrappers for older commands and Ver1 documentation.
+- The upstream UI submodule keeps its project/package naming: `live-vlm-webui` for the project and `live_vlm_webui` for the Python package.
+
+Runtime profiles are stored in `configs/`:
+
+- `configs/mock.env`: software-only validation profile using `ROBOT_ADAPTER=mock`.
+- `configs/puppypi.env`: PuppyPi physical validation profile using `ROBOT_ADAPTER=puppypi`.
+
+Use a profile with the Stage 3 launcher:
+
+```bash
+OPENPAVE_CONFIG=configs/mock.env ./scripts/run_stage3_demo.sh
+OPENPAVE_CONFIG=configs/puppypi.env ./scripts/run_stage3_demo.sh
 ```
 
 ## Documentation guide
 
 - `docs/architecture.md`: Current high-level architecture notes and role split across robot/sensor endpoints, edge inference/observability, and runtime control.
 - `docs/arm-physical-ai-ref-workflow.md`: Reference workflow framing for local edge Physical AI on Arm/Linux ecosystems. This is not an official Arm position.
-- `docs/intent_schema.md`: Stage 1 intent schema v0.1, including supported intent types, metadata, validation rules, and examples.
-- `docs/live-vlm-webui_hook.md`: Notes for the server-side hook that forwards selected VLM outputs such as `STOP` and `TROT` to Intent Ingress.
-- `docs/pave_console.md`: Stage 2 lightweight OpenPAVE console design and backend reuse notes.
+- `docs/intent-schema.md`: Stage 1 intent schema v0.1, including supported intent types, metadata, validation rules, and examples.
+- `docs/live-vlm-webui-hook.md`: Notes for the server-side hook that forwards selected VLM outputs such as `STOP` and `TROT` to Intent Ingress.
+- `docs/pave-console.md`: Stage 2 lightweight OpenPAVE console design and backend reuse notes.
 - `docs/pave_ver1_readme.md`: Preserved Ver1 MVP README for the original demo/runtime flow.
-- `docs/robot_adapters.md`: Robot Adapter interface contract, current PuppyPi/mock adapters, and guidance for adding future hardware targets.
-- `docs/robot_feedback.md`: Robot state and command result feedback model used by Stage 1 and surfaced in Stage 2.
+- `docs/robot-adapters.md`: Robot Adapter interface contract, current PuppyPi/mock adapters, and guidance for adding future hardware targets.
+- `docs/robot-feedback.md`: Robot state and command result feedback model used by Stage 1 and surfaced in Stage 2.
 - `docs/runbook.md`: Stable MVP runbook for operating the PuppyPi-side and control-side flow.
 - `docs/stage1.step.md`: End-to-end Stage 1 validation procedure for DGX/control machine plus PuppyPi.
 - `docs/stage2.step.md`: Stage 2 lightweight console installation and validation procedure.
-- `docs/third_party_notices.md`: Third-party component notices and attribution details.
+- `docs/stage3.step.md`: Stage 3A developer runtime launcher usage and validation procedure.
+- `docs/third-party-notices.md`: Third-party component notices and attribution details.
 - `docs/todo.md`: Roadmap and staged execution checklist for current and upcoming OpenPAVE work.
 
 ## Typical use cases

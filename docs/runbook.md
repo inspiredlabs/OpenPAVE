@@ -28,14 +28,14 @@ export RMW_IMPLEMENTATION=rmw_fastrtps_cpp
 
 2) Start Intent Ingress:
 ```bash
-cd intent-ingress
-python3 intent_ingress.py
+cd /path/to/OpenPAVE
+python3 -m intent_ingress.server
 ```
 
 3) Start Control Daemon:
 ```bash
-cd control-daemon
-python3 pave_control_daemon_mvp.py
+cd /path/to/OpenPAVE
+python3 -m control_daemon.daemon
 ```
 
 ## Common failure: FastDDS RTPS history error

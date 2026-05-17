@@ -5,9 +5,9 @@
 OpenPAVE uses a small intent schema to separate VLM/VLA output from robot-specific control code. The schema is the runtime contract between:
 
 - VLM/WebUI output
-- `intent-ingress`
+- `intent_ingress`
 - the intent file bus
-- `control-daemon`
+- `control_daemon`
 - future robot adapters
 
 The first schema version is intentionally small. It covers the current MVP actions while leaving room for additional robot targets and compute devices.
@@ -108,7 +108,7 @@ These limits are conservative for the current PuppyPi target and can be revised 
 
 ## Text Aliases
 
-`intent-ingress` accepts simple text payloads for compatibility with the current WebUI hook:
+`intent_ingress` accepts simple text payloads for compatibility with the current WebUI hook:
 
 ```json
 { "text": "STOP" }

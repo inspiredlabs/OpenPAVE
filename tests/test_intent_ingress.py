@@ -1,4 +1,4 @@
-import importlib.util
+import importlib
 import json
 import os
 import tempfile
@@ -6,16 +6,11 @@ import unittest
 from pathlib import Path
 
 
-ROOT = Path(__file__).resolve().parents[1]
-INGRESS_PATH = ROOT / "intent-ingress" / "intent_ingress.py"
 HAS_FLASK = importlib.util.find_spec("flask") is not None
 
 
 def load_ingress_module():
-    spec = importlib.util.spec_from_file_location("intent_ingress_test_module", INGRESS_PATH)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+    return importlib.reload(importlib.import_module("intent_ingress.server"))
 
 
 @unittest.skipUnless(HAS_FLASK, "Flask is not installed; run with intent-ingress requirements")

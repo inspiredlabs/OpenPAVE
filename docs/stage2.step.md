@@ -106,7 +106,7 @@ cd /path/to/OpenPAVE
 python3.12 -m venv .venv
 source .venv/bin/activate
 python3 -m pip install -U pip
-python3 -m pip install -r intent-ingress/requirements.txt
+python3 -m pip install -r intent_ingress/requirements.txt
 python3 -m pip install -r ui/requirements.txt
 python3 -m pip install -e ui
 ```
@@ -169,7 +169,7 @@ source .venv/bin/activate
 
 export INTENT_PATH=/tmp/vla_intent.json
 
-python3 intent-ingress/intent_ingress.py
+python3 -m intent_ingress.server
 ```
 
 Health check from another terminal:
@@ -205,7 +205,7 @@ export INTENT_PATH=/tmp/vla_intent.json
 export COMMAND_RESULT_PATH=/tmp/vla_command_result.json
 export ROBOT_STATE_PATH=/tmp/vla_robot_state.json
 
-python3 control-daemon/pave_control_daemon_mvp.py
+python3 -m control_daemon.daemon
 ```
 
 For UI-only local validation without robot hardware:
@@ -219,7 +219,7 @@ export INTENT_PATH=/tmp/vla_intent.json
 export COMMAND_RESULT_PATH=/tmp/vla_command_result.json
 export ROBOT_STATE_PATH=/tmp/vla_robot_state.json
 
-python3 control-daemon/pave_control_daemon_mvp.py
+python3 -m control_daemon.daemon
 ```
 
 ## 5. Terminal 3: Start a vLLM Backend
