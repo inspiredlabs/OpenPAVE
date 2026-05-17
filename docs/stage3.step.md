@@ -252,6 +252,88 @@ http://localhost:8000/v1/models
 
 If the VLM endpoint is not reachable, the launcher still starts the UI. Layout, WebSocket connectivity, runtime feedback, and manual intent testing can still be validated without model inference.
 
+## Stage 3C Benchmark Validation
+
+The benchmark harness runs from a second terminal while the Stage 3 runtime is already running.
+
+### Mock Control-Path Benchmark
+
+Terminal 1:
+
+```bash
+cd /path/to/OpenPAVE
+source .venv/bin/activate
+
+OPENPAVE_CONFIG=configs/mock.env ./scripts/run_stage3_demo.sh
+```
+
+Confirm the launcher prints:
+
+```text
+ROBOT_ADAPTER=mock
+```
+
+Terminal 2:
+
+```bash
+cd /path/to/OpenPAVE
+source .venv/bin/activate
+
+python3 scripts/run_benchmark.py scenarios/mock-intent-stop-trot.json
+```
+
+Expected summary:
+
+```text
+summary=total=2 passed=2 failed=0 avg_latency_ms=...
+```
+
+Benchmark results are written to:
+
+```text
+benchmark-results/
+```
+
+### Physical PuppyPi Benchmark
+
+Only run this after the PuppyPi ROS2 controller is running and the robot is in a safe test area.
+
+Terminal 1:
+
+```bash
+cd /path/to/OpenPAVE
+source .venv/bin/activate
+
+OPENPAVE_CONFIG=configs/puppypi.env ./scripts/run_stage3_demo.sh
+```
+
+Terminal 2:
+
+```bash
+cd /path/to/OpenPAVE
+source .venv/bin/activate
+
+python3 scripts/run_benchmark.py scenarios/puppypi-gesture-stop-trot.json --allow-physical
+```
+
+Physical-motion scenarios are blocked unless `--allow-physical` is passed.
+
+### STOP-Only Physical Check
+
+Use this when you want to validate the physical control path without sending `TROT`:
+
+```bash
+python3 scripts/run_benchmark.py scenarios/puppypi-gesture-stop-trot.json \
+  --allow-physical \
+  --intent STOP
+```
+
+Inspect the latest command result:
+
+```bash
+cat /tmp/vla_command_result.json
+```
+
 ## Stop
 
 Press `Ctrl+C` in the launcher terminal.
