@@ -129,10 +129,13 @@ Move PAVE from a working demo pipeline toward a repeatable Physical AI experimen
 - [x] Capture model, prompt, scenario, robot/sensor endpoint, adapter, inference node, hardware, and runtime configuration for each run.
 - [x] Store benchmark results in a structured format such as JSONL or CSV.
 - [x] Add summary reporting for benchmark runs.
+- [x] Validate mock benchmark, summary reporting, shell glob handling, and gate checks on DGX.
 - [x] Support comparison reporting grouped by VLM/VLA model metadata under the same scenario.
 - [x] Support comparison reporting grouped by robot/sensor endpoint metadata under the same prompt and scenario contract.
 - [x] Support comparison reporting grouped by Arm-based inference node metadata under the same prompt and scenario contract.
 - [x] Add lightweight pass-rate and average-latency gates for control-path benchmark summaries.
+- [x] Validate Stage 3 runtime with vLLM and `/pave` text-only inference result on DGX.
+- [x] Validate PuppyPi runtime profile can connect and run through the Stage 3 launcher.
 - [ ] Add camera/sensor replay inputs for true end-to-end VLM/VLA model latency and output-quality comparison.
 - [x] Include control-path latency from intent emission to ROS 2 command execution.
 - [x] Connect benchmark runs to prompt presets and demo scenarios.
