@@ -162,6 +162,22 @@ Move PAVE from a working demo pipeline toward a repeatable Physical AI experimen
 - [ ] Add migration documentation for moving from `live-vlm-webui` mode to OpenPAVE-native console mode.
 - [ ] Validate the decoupled UI against PuppyPi and at least one additional hardware target.
 
+## Stage 5: Persistent Robot Control Plane
+
+### Stage 5A: ROS2 Bridge Adapter
+
+- [ ] Keep the current Docker CLI based `PuppyPiAdapter` as a reference validation adapter and fallback path.
+- [ ] Define a persistent ROS2 bridge adapter contract for lower-latency robot command execution.
+- [ ] Implement a long-running ROS2 bridge process or container that owns ROS2 service clients, publishers, and robot command state.
+- [ ] Add a new adapter mode such as `ROBOT_ADAPTER=puppypi_ros2_bridge`.
+- [ ] Route OpenPAVE control daemon commands to the bridge over a stable local transport such as HTTP, gRPC, or Unix socket.
+- [ ] Avoid spawning a new Docker container for every ROS2 command in the bridge path.
+- [ ] Add timeout, cancellation, heartbeat, and error propagation semantics to the bridge contract.
+- [ ] Report bridge-side command timestamps so benchmarks can separate OpenPAVE dispatch latency from ROS2 execution latency.
+- [ ] Support compound command sequences without shelling out for every step.
+- [ ] Document when to use Docker CLI adapter versus persistent ROS2 bridge adapter.
+- [ ] Validate the persistent bridge against PuppyPi first, then generalize the contract for other ROS2 robot/sensor endpoints.
+
 ## Notes
 
 - Stage 1 should be completed before the lightweight UI depends on command feedback or robot state.
@@ -169,5 +185,6 @@ Move PAVE from a working demo pipeline toward a repeatable Physical AI experimen
 - Stage 3 should first make the runtime repeatable to launch, then make prompts/scenarios repeatable to describe, and then make benchmarks repeatable to measure.
 - Stage 3 prompts, scenarios, and benchmarks should use explicit robot/sensor endpoint and inference node assumptions.
 - Stage 4 should reduce long-term coupling to `live-vlm-webui` while keeping Apache-2.0 attribution and compatibility during migration.
+- Stage 5 should reduce ROS2 command latency and jitter by moving from one-shot Docker CLI calls to a persistent robot control bridge.
 - The immediate maturity target is to move from a demo pipeline to a repeatable runtime foundation.
 - PuppyPi and DGX Spark remain the first validation targets, but the architecture should stop assuming them everywhere.
