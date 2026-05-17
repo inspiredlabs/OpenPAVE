@@ -2,7 +2,6 @@
 
 ## Purpose
 
-- Headless control core consuming intents and issuing ROS 2 commands.
 OpenPAVE is a local-first Physical AI reference workflow for validating how ROS2 robot/sensor endpoints, Arm-based edge inference nodes, VLM/VLA reasoning, and runtime control feedback can be composed into a repeatable experimentation platform.
 
 The current DGX Spark + PuppyPi setup is a validated reference implementation, not the product boundary of OpenPAVE.
