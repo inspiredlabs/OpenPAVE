@@ -29,6 +29,97 @@ These are still external dependencies in Stage 3A:
 
 This keeps Stage 3A focused on developer runtime orchestration without hiding hardware or inference setup problems.
 
+## Install live-vlm-webui Observability UI
+
+The Stage 3 launcher starts the OpenPAVE console through the `ui/` submodule, which points to the OpenPAVE-maintained `live-vlm-webui` fork.
+
+After cloning or pulling OpenPAVE, initialize the submodule and install it into the repo-level virtual environment:
+
+```bash
+cd /path/to/OpenPAVE
+
+git submodule update --init --recursive
+
+python3 -m venv .venv
+source .venv/bin/activate
+python3 -m pip install -U pip
+python3 -m pip install -r intent_ingress/requirements.txt
+python3 -m pip install -e ui
+```
+
+Confirm the installed module resolves to the checked-out submodule:
+
+```bash
+python3 -c "import live_vlm_webui.server as s; print(s.__file__)"
+```
+
+Expected path:
+
+```text
+/path/to/OpenPAVE/ui/src/live_vlm_webui/server.py
+```
+
+Confirm the OpenPAVE console route and text-inference endpoint exist in the submodule checkout:
+
+```bash
+grep -n 'app.router.add_get("/pave"' ui/src/live_vlm_webui/server.py
+grep -n 'app.router.add_post("/api/pave/infer"' ui/src/live_vlm_webui/server.py
+```
+
+If `/` works but `/pave` returns `404`, update the submodule:
+
+```bash
+git submodule update --init --recursive
+python3 -m pip install -e ui
+```
+
+## Build the Custom ROS 2 CLI Docker Image
+
+The PuppyPi adapter uses two ROS2 CLI Docker images:
+
+```text
+ROS_SVC_IMAGE=ros:humble
+ROS_PUB_IMAGE=puppy-ros2-cli:humble
+```
+
+`ros:humble` is enough for standard ROS2 service calls such as `SetBool` and `Empty`.
+`puppy-ros2-cli:humble` is required for PuppyPi custom message publishing, including:
+
+```text
+puppy_control_msgs/msg/Velocity
+```
+
+Build the custom image on the DGX/control machine before running physical PuppyPi `MOVE` validation or any scenario that publishes PuppyPi custom messages:
+
+```bash
+cd /path/to/OpenPAVE
+
+./scripts/build_puppy_ros2_cli.sh
+```
+
+The script expects this repo path to exist:
+
+```text
+third_party/puppy_control_msgs
+```
+
+It builds and verifies:
+
+```text
+puppy-ros2-cli:humble
+```
+
+You can verify the image manually:
+
+```bash
+docker run -it --rm puppy-ros2-cli:humble bash -lc \
+"source /opt/ros/humble/setup.bash && source /ws/install/setup.bash && ros2 interface show puppy_control_msgs/msg/Velocity"
+```
+
+This custom image is not required for `ROBOT_ADAPTER=mock`.
+For PuppyPi `STOP`, `TROT`, and `HOME`, the adapter primarily uses `ros:humble` service calls.
+For PuppyPi `MOVE`, the adapter uses `ROS_PUB_IMAGE`, which defaults to `puppy-ros2-cli:humble`.
+
 ## Basic Usage
 
 From the repo root:
