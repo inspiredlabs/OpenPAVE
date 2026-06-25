@@ -1,6 +1,6 @@
 # OpenPAVE Stage 3A Developer Runtime Launcher
 
-This guide validates the Stage 3A developer runtime launcher.
+This guide validates the OpenPAVE Stage 3A developer runtime launcher.
 
 Stage 3A does not replace the distributed OpenPAVE architecture. It provides one command that starts the local developer-facing runtime processes that are already part of Stage 1 and Stage 2.
 
@@ -42,6 +42,7 @@ git submodule update --init --recursive
 
 python3 -m venv .venv
 source .venv/bin/activate
+
 python3 -m pip install -U pip
 python3 -m pip install -r intent_ingress/requirements.txt
 python3 -m pip install -e ui
@@ -66,7 +67,7 @@ grep -n 'app.router.add_get("/pave"' ui/src/live_vlm_webui/server.py
 grep -n 'app.router.add_post("/api/pave/infer"' ui/src/live_vlm_webui/server.py
 ```
 
-If `/` works but `/pave` returns `404`, update the submodule:
+If `/` works but `/pave` returns `404`, update the submodule and reinstall the editable package:
 
 ```bash
 git submodule update --init --recursive
@@ -82,7 +83,8 @@ ROS_SVC_IMAGE=ros:humble
 ROS_PUB_IMAGE=puppy-ros2-cli:humble
 ```
 
-`ros:humble` is enough for standard ROS2 service calls such as `SetBool` and `Empty`.
+`ros:humble` is enough for standard ROS 2 service calls such as `SetBool` and `Empty`.
+
 `puppy-ros2-cli:humble` is required for PuppyPi custom message publishing, including:
 
 ```text
@@ -117,8 +119,8 @@ docker run -it --rm puppy-ros2-cli:humble bash -lc \
 ```
 
 This custom image is not required for `ROBOT_ADAPTER=mock`.
-For PuppyPi `STOP`, `TROT`, and `HOME`, the adapter primarily uses `ros:humble` service calls.
-For PuppyPi `MOVE`, the adapter uses `ROS_PUB_IMAGE`, which defaults to `puppy-ros2-cli:humble`.
+
+For PuppyPi `STOP`, `TROT`, and `HOME`, the adapter primarily uses `ros:humble` service calls. For PuppyPi `MOVE`, the adapter uses `ROS_PUB_IMAGE`, which defaults to `puppy-ros2-cli:humble`.
 
 ## Basic Usage
 
@@ -153,50 +155,172 @@ ROBOT_IP_ADDRESS=192.168.0.8
 
 Stage 3 can start the OpenPAVE runtime without vLLM, but real VLM inference requires an OpenAI-compatible backend at the configured `UI_API_BASE`.
 
-Use a separate vLLM virtual environment to avoid dependency conflicts with the OpenPAVE repo-level `.venv`:
+Use a separate vLLM virtual environment to avoid dependency conflicts with the OpenPAVE repo-level `.venv`.
+
+OpenPAVE Stage 3 currently pins vLLM to `0.21.0` for demo stability. Newer vLLM releases may change engine defaults, memory behavior, dependency behavior, or API handling.
 
 ```bash
 cd /path/to/OpenPAVE
 
 python3 -m venv .venv-vllm
 source .venv-vllm/bin/activate
+
 python3 -m pip install -U pip
-python3 -m pip install -U vllm
+python3 -m pip install "vllm==0.21.0"
 python3 -m pip check
+
+vllm --version
 ```
 
-Start vLLM with the default Stage 3 model:
+Expected version:
+
+```text
+0.21.0
+```
+
+### Start vLLM with Local Hugging Face Cache
+
+For demo runs, prefer using the model that has already been downloaded into the local Hugging Face cache. This avoids startup failures caused by network timeouts while vLLM checks Hugging Face Hub metadata.
 
 ```bash
+cd /path/to/OpenPAVE
 source .venv-vllm/bin/activate
+
+export HF_HUB_OFFLINE=1
+export TRANSFORMERS_OFFLINE=1
 
 vllm serve llava-hf/llava-v1.6-mistral-7b-hf \
+  --host 0.0.0.0 \
+  --port 8000 \
+  --dtype float16 \
+  --max-model-len 3072 \
+  --gpu-memory-utilization 0.55 \
+  --enforce-eager
+```
+
+If the model has not been downloaded before, offline mode will fail. In that case, temporarily disable offline mode, download the model once, and then re-enable offline mode for future demo runs:
+
+```bash
+unset HF_HUB_OFFLINE
+unset TRANSFORMERS_OFFLINE
+
+vllm serve llava-hf/llava-v1.6-mistral-7b-hf \
+  --host 0.0.0.0 \
   --port 8000 \
   --dtype auto
 ```
 
-For older vLLM installs that do not provide `vllm serve`, use the OpenAI-compatible API server entry point:
+After the model is cached locally, restart vLLM with:
 
 ```bash
-source .venv-vllm/bin/activate
+export HF_HUB_OFFLINE=1
+export TRANSFORMERS_OFFLINE=1
+```
 
-python3 -m vllm.entrypoints.openai.api_server \
-  --model llava-hf/llava-v1.6-mistral-7b-hf \
+You can check whether the model exists in the Hugging Face cache with:
+
+```bash
+find ~/.cache/huggingface/hub -maxdepth 1 -type d | grep "models--llava-hf--llava-v1.6-mistral-7b-hf" || true
+```
+
+If the cache is owned by another user or a previous root process, fix the ownership:
+
+```bash
+sudo chown -R "$USER:$USER" ~/.cache/huggingface
+```
+
+### Verify the vLLM Endpoint
+
+From another terminal:
+
+```bash
+curl -s http://127.0.0.1:8000/v1/models | head
+```
+
+If the WebUI is opened from another machine, make sure vLLM is started with:
+
+```bash
+--host 0.0.0.0
+```
+
+Then configure the WebUI API base to:
+
+```text
+http://<DGX_OR_CONTROL_MACHINE_IP>:8000/v1
+```
+
+### vLLM Troubleshooting
+
+If vLLM fails with a Hugging Face handshake timeout, use the local cache mode:
+
+```bash
+export HF_HUB_OFFLINE=1
+export TRANSFORMERS_OFFLINE=1
+```
+
+If vLLM reports CUDA out of memory, first stop old vLLM processes and check GPU usage:
+
+```bash
+pkill -f vllm || true
+pkill -f "api_server" || true
+pkill -f "EngineCore" || true
+
+nvidia-smi
+```
+
+Then restart with more conservative settings:
+
+```bash
+vllm serve llava-hf/llava-v1.6-mistral-7b-hf \
+  --host 0.0.0.0 \
   --port 8000 \
-  --dtype auto
+  --dtype float16 \
+  --max-model-len 2048 \
+  --gpu-memory-utilization 0.50 \
+  --enforce-eager
 ```
 
-Verify the endpoint from another terminal:
+If vLLM returns:
 
-```bash
-curl -s http://localhost:8000/v1/models
+```text
+Input length (...) exceeds model's maximum context length (...)
 ```
 
-If vLLM fails with an `openai.types.responses` import error, the vLLM environment has an incompatible `openai` package version. Recreate `.venv-vllm` or reinstall vLLM and OpenAI SDK together in that separate environment.
+increase `--max-model-len` if GPU memory allows, or reduce the WebUI prompt length. For physical PuppyPi demos, keep the prompt short and strict:
+
+```text
+Reply exactly one word: TROT or STOP.
+Use TROT only when clearly safe to start stepping. Otherwise STOP.
+```
+
+If vLLM fails with an `openai.types.responses` import error, the vLLM environment has an incompatible `openai` package version. Recreate `.venv-vllm` or reinstall vLLM and the OpenAI SDK together in that separate environment.
 
 ## Physical PuppyPi Validation
 
-Start the PuppyPi ROS2 controller on the PuppyPi side:
+Start the PuppyPi ROS 2 controller on the PuppyPi side.
+
+Recommended container entry method:
+
+```bash
+docker start puppypi_ros2
+docker exec -it -u ubuntu -w /home/ubuntu puppypi_ros2 /bin/bash
+```
+
+Inside the container:
+
+```bash
+export ROS_DOMAIN_ID=0
+export RMW_IMPLEMENTATION=rmw_fastrtps_cpp
+
+source /opt/ros/humble/setup.bash
+source /home/ubuntu/ros2_ws/install/setup.bash
+
+ros2 launch puppy_control puppy_control.launch.py
+```
+
+Keep this terminal open while running the physical robot demo.
+
+If you use the helper script instead:
 
 ```bash
 cd /path/to/OpenPAVE
@@ -219,16 +343,30 @@ PUPPYPI_RESTART_ROS_DAEMON=1
 PUPPYPI_LAUNCH_CMD=ros2 launch puppy_control puppy_control.launch.py
 ```
 
-Start the vLLM backend, then run the OpenPAVE runtime on the DGX/control side:
+Start the vLLM backend first, then run the OpenPAVE runtime on the DGX/control side.
+
+From the OpenPAVE repo root:
 
 ```bash
 cd /path/to/OpenPAVE
 source .venv/bin/activate
 
+mkdir -p .openpave/runtime .openpave/logs
+
+export ROBOT_ADAPTER=puppypi
+export ROBOT_IP_ADDRESS="172.20.10.<PUPPYPI_IP>"
+
+export ROS_DOMAIN_ID=0
+export RMW_IMPLEMENTATION=rmw_fastrtps_cpp
+
+export INTENT_PATH="$PWD/.openpave/runtime/vla_intent.json"
+export COMMAND_RESULT_PATH="$PWD/.openpave/runtime/vla_command_result.json"
+export ROBOT_STATE_PATH="$PWD/.openpave/runtime/vla_robot_state.json"
+
 OPENPAVE_CONFIG=configs/puppypi.env ./scripts/run_stage3_demo.sh
 ```
 
-`configs/puppypi.env` contains the PuppyPi adapter, robot IP address, VLM model/backend, ROS domain, RMW implementation, and ROS CLI Docker image settings.
+`configs/puppypi.env` contains the PuppyPi adapter, robot IP address, VLM model/backend, ROS domain, RMW implementation, and ROS CLI Docker image settings. Environment variables exported in the shell can override profile values.
 
 For physical robot safety, VLM-driven `TROT` forwarding requires repeated confirmation by default:
 
@@ -236,9 +374,12 @@ For physical robot safety, VLM-driven `TROT` forwarding requires repeated confir
 INTENT_FORWARDING_ENABLED=1
 TROT_CONFIRMATIONS=2
 TROT_CONFIRMATION_WINDOW_MS=1500
+TROT_COOLDOWN_MS=3000
 ```
 
-`STOP` is still forwarded immediately. To disable VLM-to-robot forwarding during debugging:
+`STOP` is still forwarded immediately.
+
+To disable VLM-to-robot forwarding during debugging:
 
 ```bash
 OPENPAVE_CONFIG=configs/puppypi.env INTENT_FORWARDING_ENABLED=0 ./scripts/run_stage3_demo.sh
@@ -247,7 +388,7 @@ OPENPAVE_CONFIG=configs/puppypi.env INTENT_FORWARDING_ENABLED=0 ./scripts/run_st
 You can still override a profile value from the shell:
 
 ```bash
-OPENPAVE_CONFIG=configs/puppypi.env ROBOT_IP_ADDRESS=192.168.0.42 ./scripts/run_stage3_demo.sh
+OPENPAVE_CONFIG=configs/puppypi.env ROBOT_IP_ADDRESS=<PUPPYPI_IP> ./scripts/run_stage3_demo.sh
 ```
 
 ## Open URLs
@@ -261,7 +402,7 @@ http://127.0.0.1:8090/pave
 
 Use `/` for the full upstream `live-vlm-webui`.
 
-Use `/pave` for the lightweight OpenPAVE console when the checked-out `ui` submodule includes the Stage 2 console patch. If `/` works but `/pave` returns 404, the current `live-vlm-webui` checkout does not include the OpenPAVE console route.
+Use `/pave` for the lightweight OpenPAVE console when the checked-out `ui` submodule includes the Stage 2 console patch. If `/` works but `/pave` returns `404`, the current `live-vlm-webui` checkout does not include the OpenPAVE console route.
 
 The `/pave` console can also run a text-only prompt inference through:
 
@@ -273,20 +414,102 @@ Use this to validate the vLLM/OpenAI-compatible backend and UI prompt/result pat
 
 ## Runtime Files
 
-The launcher uses these default runtime files:
+For physical PuppyPi demos, use repo-local runtime files instead of `/tmp`. This avoids stale files and permission conflicts when the demo is run by different users or after previous root-owned processes.
 
-```text
-/tmp/vla_intent.json
-/tmp/vla_command_result.json
-/tmp/vla_robot_state.json
-```
-
-Override them with:
+From the repo root:
 
 ```bash
-export INTENT_PATH=/tmp/vla_intent.json
-export COMMAND_RESULT_PATH=/tmp/vla_command_result.json
-export ROBOT_STATE_PATH=/tmp/vla_robot_state.json
+cd /path/to/OpenPAVE
+
+mkdir -p .openpave/runtime .openpave/logs
+
+export INTENT_PATH="$PWD/.openpave/runtime/vla_intent.json"
+export COMMAND_RESULT_PATH="$PWD/.openpave/runtime/vla_command_result.json"
+export ROBOT_STATE_PATH="$PWD/.openpave/runtime/vla_robot_state.json"
+```
+
+The runtime files are created by the services when commands are processed:
+
+```text
+.openpave/runtime/vla_intent.json
+.openpave/runtime/vla_command_result.json
+.openpave/runtime/vla_robot_state.json
+```
+
+If you previously used `/tmp`, remove stale files before starting a physical demo:
+
+```bash
+sudo rm -f /tmp/vla_intent.json /tmp/vla_intent.json.tmp
+sudo rm -f /tmp/vla_command_result.json /tmp/vla_command_result.json.tmp
+sudo rm -f /tmp/vla_robot_state.json /tmp/vla_robot_state.json.tmp
+```
+
+To inspect the repo-local runtime state:
+
+```bash
+cat .openpave/runtime/vla_intent.json
+cat .openpave/runtime/vla_command_result.json
+cat .openpave/runtime/vla_robot_state.json
+```
+
+## Manual Intent Test
+
+Use this to validate the Intent Ingress and Control Daemon path without using the WebUI.
+
+Start the runtime, then run:
+
+```bash
+curl -s -X POST http://127.0.0.1:7071/intent \
+  -H 'Content-Type: application/json' \
+  -d '{"text":"TROT"}'
+```
+
+If `TROT` safety confirmation is enabled, the first request may return:
+
+```json
+{
+  "ok": true,
+  "accepted": false,
+  "reason": "waiting_trot_confirmation_1/2"
+}
+```
+
+Send the same command again within the confirmation window:
+
+```bash
+curl -s -X POST http://127.0.0.1:7071/intent \
+  -H 'Content-Type: application/json' \
+  -d '{"text":"TROT"}'
+```
+
+`STOP` is always accepted immediately:
+
+```bash
+curl -s -X POST http://127.0.0.1:7071/intent \
+  -H 'Content-Type: application/json' \
+  -d '{"text":"STOP"}'
+```
+
+Check the intent file:
+
+```bash
+cat .openpave/runtime/vla_intent.json
+```
+
+Watch the daemon logs:
+
+```bash
+tail -f .openpave/logs/control_daemon.log
+```
+
+Expected control path:
+
+```text
+COMMAND status=received intent=TROT
+COMMAND status=accepted intent=TROT
+COMMAND status=executing intent=TROT
+ACTION=TROT adapter=puppypi
+COMMAND status=succeeded intent=TROT
 ```
 
 ## Debug Unexpected Robot Motion
@@ -296,14 +519,14 @@ If the robot executes `TROT` when you did not intentionally send a new command, 
 Inspect the current intent:
 
 ```bash
-cat /tmp/vla_intent.json
+cat .openpave/runtime/vla_intent.json
 ```
 
 Inspect command lifecycle feedback:
 
 ```bash
-cat /tmp/vla_command_result.json
-cat /tmp/vla_robot_state.json
+cat .openpave/runtime/vla_command_result.json
+cat .openpave/runtime/vla_robot_state.json
 ```
 
 Watch the managed runtime logs:
@@ -314,7 +537,7 @@ tail -f .openpave/logs/control_daemon.log
 tail -f .openpave/logs/openpave-ui.log
 ```
 
-The control daemon ignores an intent file that already exists before daemon startup. It only processes that file after it changes. This prevents a stale `/tmp/vla_intent.json` containing `TROT` from being replayed when the runtime restarts.
+The control daemon ignores an intent file that already exists before daemon startup. It only processes that file after it changes. This prevents a stale intent containing `TROT` from being replayed when the runtime restarts.
 
 To intentionally replay an existing intent file during development:
 
@@ -322,7 +545,16 @@ To intentionally replay an existing intent file during development:
 PROCESS_EXISTING_INTENT_ON_START=1 ./scripts/run_stage3_demo.sh
 ```
 
-If `/tmp/vla_intent.json` changes to `TROT` while the UI is running, the likely source is a VLM output being forwarded by `live-vlm-webui`. In that case, check `openpave-ui.log` and the UI prompt/result panel. For physical robot validation, keep the prompt strict and prefer `STOP` as the fallback output.
+If the intent file changes to `TROT` while the UI is running, the likely source is a VLM output being forwarded by `live-vlm-webui`. In that case, check `openpave-ui.log` and the UI prompt/result panel.
+
+For physical robot validation, keep the prompt strict and prefer `STOP` as the fallback output.
+
+Recommended prompt:
+
+```text
+Reply exactly one word: TROT or STOP.
+Use TROT only when clearly safe to start stepping. Otherwise STOP.
+```
 
 ## Logs
 
@@ -350,6 +582,13 @@ http://localhost:8000/v1/models
 ```
 
 If the VLM endpoint is not reachable, the launcher still starts the UI. Layout, WebSocket connectivity, runtime feedback, and manual intent testing can still be validated without model inference.
+
+Manual checks:
+
+```bash
+curl -s http://127.0.0.1:7071/healthz
+curl -s http://127.0.0.1:8000/v1/models | head
+```
 
 ## Stage 3C Benchmark Validation
 
@@ -399,8 +638,7 @@ Summarize one or more benchmark result files:
 python3 scripts/summarize_benchmarks.py benchmark-results/*.jsonl
 ```
 
-Compare model, endpoint, or inference-node dimensions by changing the grouping.
-This compares benchmark result files by their scenario metadata; Stage 3C.1 does not replay camera frames or measure VLM output quality yet.
+Compare model, endpoint, or inference-node dimensions by changing the grouping. This compares benchmark result files by their scenario metadata; Stage 3C.1 does not replay camera frames or measure VLM output quality yet.
 
 ```bash
 python3 scripts/summarize_benchmarks.py benchmark-results/*.jsonl \
@@ -440,6 +678,18 @@ Terminal 1:
 cd /path/to/OpenPAVE
 source .venv/bin/activate
 
+mkdir -p .openpave/runtime .openpave/logs
+
+export ROBOT_ADAPTER=puppypi
+export ROBOT_IP_ADDRESS="<PUPPYPI_IP>"
+
+export ROS_DOMAIN_ID=0
+export RMW_IMPLEMENTATION=rmw_fastrtps_cpp
+
+export INTENT_PATH="$PWD/.openpave/runtime/vla_intent.json"
+export COMMAND_RESULT_PATH="$PWD/.openpave/runtime/vla_command_result.json"
+export ROBOT_STATE_PATH="$PWD/.openpave/runtime/vla_robot_state.json"
+
 OPENPAVE_CONFIG=configs/puppypi.env ./scripts/run_stage3_demo.sh
 ```
 
@@ -467,7 +717,7 @@ python3 scripts/run_benchmark.py scenarios/puppypi-gesture-stop-trot.json \
 Inspect the latest command result:
 
 ```bash
-cat /tmp/vla_command_result.json
+cat .openpave/runtime/vla_command_result.json
 ```
 
 ## Stop
@@ -488,4 +738,79 @@ Disable this only for debugging:
 STOP_ROBOT_ON_EXIT=0 OPENPAVE_CONFIG=configs/puppypi.env ./scripts/run_stage3_demo.sh
 ```
 
-It does not stop external dependencies such as vLLM or the robot-side ROS2 controller.
+It does not stop external dependencies such as vLLM or the robot-side ROS 2 controller.
+
+## Suggested Demo Startup Checklist
+
+Use this condensed checklist for a physical PuppyPi demo.
+
+### Terminal 1: PuppyPi ROS 2 Controller
+
+```bash
+docker start puppypi_ros2
+docker exec -it -u ubuntu -w /home/ubuntu puppypi_ros2 /bin/bash
+```
+
+Inside the container:
+
+```bash
+export ROS_DOMAIN_ID=0
+export RMW_IMPLEMENTATION=rmw_fastrtps_cpp
+
+source /opt/ros/humble/setup.bash
+source /home/ubuntu/ros2_ws/install/setup.bash
+
+ros2 launch puppy_control puppy_control.launch.py
+```
+
+### Terminal 2: vLLM Backend
+
+```bash
+cd /path/to/OpenPAVE
+source .venv-vllm/bin/activate
+
+export HF_HUB_OFFLINE=1
+export TRANSFORMERS_OFFLINE=1
+
+vllm serve llava-hf/llava-v1.6-mistral-7b-hf \
+  --host 0.0.0.0 \
+  --port 8000 \
+  --dtype float16 \
+  --max-model-len 3072 \
+  --gpu-memory-utilization 0.55 \
+  --enforce-eager
+```
+
+### Terminal 3: OpenPAVE Runtime
+
+```bash
+cd /path/to/OpenPAVE
+source .venv/bin/activate
+
+mkdir -p .openpave/runtime .openpave/logs
+
+export ROBOT_ADAPTER=puppypi
+export ROBOT_IP_ADDRESS="172.20.10.<PUPPYPI_IP>"
+
+export ROS_DOMAIN_ID=0
+export RMW_IMPLEMENTATION=rmw_fastrtps_cpp
+
+export INTENT_PATH="$PWD/.openpave/runtime/vla_intent.json"
+export COMMAND_RESULT_PATH="$PWD/.openpave/runtime/vla_command_result.json"
+export ROBOT_STATE_PATH="$PWD/.openpave/runtime/vla_robot_state.json"
+
+OPENPAVE_CONFIG=configs/puppypi.env ./scripts/run_stage3_demo.sh
+```
+
+### Terminal 4: Smoke Test
+
+```bash
+curl -s http://127.0.0.1:7071/healthz
+curl -s http://127.0.0.1:8000/v1/models | head
+
+curl -s -X POST http://127.0.0.1:7071/intent \
+  -H 'Content-Type: application/json' \
+  -d '{"text":"STOP"}'
+
+tail -n 80 .openpave/logs/control_daemon.log
+```
