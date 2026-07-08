@@ -5,7 +5,7 @@ replacing the DGX Spark edge-inference runtime with a native **MLX** runtime and
 native **PyQt6** operator console.
 
 The target architecture follows the reference patterns in
-`/Users/scottphillips/Documents/GitHub/jepa/support/WORKING/13` (the "template"):
+` GitHub/jepa/support/WORKING/13` (the "template"):
 its PyQt6 layout, its strict file separation of concerns, and the way its
 placeholder **Physics Simulator** drives an MLX runtime in the background while
 the GUI only observes.
@@ -27,8 +27,7 @@ replaceable roles (see [README.md](../README.md) and [docs/architecture.md](arch
 
 ### 1.2 Component inventory and portability
 
-I read the runtime code. The important fact for porting is that **most of OpenPAVE
-is already platform-neutral pure Python** — only two things are tied to DGX Spark /
+To port it's important to state that **OpenPAVE is already platform-neutral pure Python** — only two things are tied to DGX Spark /
 NVIDIA / ROS hardware.
 
 | Component | Files | Portable to Mac as-is? |
@@ -66,7 +65,7 @@ solved the exact problem we now face: **run MLX inference locally and present it
 a native PyQt6 app, with a swappable headless physics runtime as a second
 "experience".** Three properties matter for the port.
 
-### 2.1 PyQt6 GUI shape — [viewer.py](file:///Users/scottphillips/Documents/GitHub/jepa/support/WORKING/13/viewer.py)
+### 2.1 PyQt6 GUI shape — [viewer.py](  )
 
 - A single `QWidget` (`VJepaViewer`) owns the window.
 - A top **`QComboBox` "Experience" selector** switches between modes
@@ -93,7 +92,7 @@ requirements.txt       One unified dependency file
 ```
 
 The rule the template enforces (see
-[CARTPOLE_MLX_RUNTIME.md](file:///Users/scottphillips/Documents/GitHub/jepa/support/WORKING/13/CARTPOLE_MLX_RUNTIME.md)):
+[CARTPOLE_MLX_RUNTIME.md]( WORKING/13/CARTPOLE_MLX_RUNTIME.md)):
 **the GUI and the browser viewer are observation-only. They never own state or
 compute.** They call an API and render what comes back.
 
@@ -182,7 +181,7 @@ the real port. The rest of this guide details Tier B.
 ### 3.2 Tier A with local perception encoders (DINOv3 / V-JEPA 2.1 / LingBot-Map)
 
 A tempting shortcut is to reuse the MLX perception models from the sibling app
-(`/Users/scottphillips/Documents/jepa/`: `dino_engine.py`, `engine.py` /
+(` jepa/`: `dino_engine.py`, `engine.py` /
 `vljepa_engine.py`, `lingbot_pointcloud_engine.py`) as the Tier A backend. **None of
 them is an OpenAI-compatible VLM** — they are vision *encoders / geometry
 extractors*, not language models:
@@ -235,12 +234,9 @@ The design splits along what is shared versus what genuinely varies per model:
   - the **labeler is shared** and backend-agnostic, with a per-backend sampling flag
     (V-JEPA needs a frame *window* per label, DINOv3 a single frame).
 
-> Net: do **not** write three heads and three trainers. Write **3 backend adapters
-> + 2 head types + 1 trainer + 1 labeler + 3 config files**. Same capability, no
-> triplication. The hardest shared work is producing labeled `(frame → intent)`
-> data — that is a shared tool, not per-model.
+> What does this mean? do **not** write three heads and three trainers. Write **3 backend adapters + 2 head types + 1 trainer + 1 labeler + 3 config files**. Same capability, no triplication. The hardest shared work is producing labeled `(frame → intent)` data — that is a shared tool, not per-model.
 
-#### Corrected decomposition (file layout)
+#### File Composition
 
 ```
 pave_mlx/
@@ -296,190 +292,9 @@ returns a learned intent token. See §6 Step 7 to operate it.
 
 ---
 
-## 4. High Performance Architectural Improvements
+## 4. Propose a CUDA pipeline improvement – DGXSpark req.
 
-The template's `PolicyRuntime` trains a gait/balance policy with a single-process
-supervised bootstrap loop — fine to prove MLX owns the weights, but slow and not a
-real RL pipeline. [**PufferLib**](https://github.com/PufferAI/PufferLib) is the
-high-performance upgrade: a C/CUDA-first RL stack that trains "tiny, super-human
-models in seconds" by running vectorized C environments at **3–5M steps/s (PyTorch
-backend)** and up to **20M steps/s (native CUDA backend)**, versus <200k steps/s for
-a naive CPU+Torch loop.
-
-The integration principle keeps the template's split intact: **PufferLib owns
-*training*; MLX owns *on-device inference*.** You train a policy fast with
-PufferLib, export the weights, and load them into the MLX `PolicyRuntime` that the
-PyQt console already serves. The `PhysicsBackend` / `PolicyRuntime` / observation
-contract is the seam where they meet.
-
-### 4.1 Where PufferLib plugs into the OpenPAVE port
-
-Add one new training package next to the runtime packages from §5; nothing in the
-control plane changes.
-
-```
-openpave/
-├─ pave_sim/                 (the digital twin — physics + observation contract)
-├─ pave_mlx/                 (MLX inference — consumes exported policy weights)
-└─ pave_train/                       NEW — PufferLib training, never imported by the GUI
-   ├─ puffer_env.py          PufferEnv wrapping the pave_sim backend (zero-copy obs)
-   ├─ ocean/                 Optional C re-implementation of the twin (Ocean-style)
-   │  └─ quadruped.c         millions of steps/s environment kernel
-   ├─ train.py               PuffeRL PPO entry point (puffer train ...)
-   ├─ export_policy.py       trained Torch weights → MLX-loadable .safetensors/.npz
-   └─ config/quadruped.ini   train.* / env.* / vec.* hyperparameters
-```
-
-### 4.2 Integration layers (where + how)
-
-1. **Environment layer — wrap the twin as a PufferLib env.**
-   - **Emulation path (fastest to stand up):** expose `pave_sim`'s
-     `QuadrupedBackend` through a Gymnasium-style `reset()/step()` and wrap it with
-     `pufferlib.emulation.GymnasiumPufferEnv`. Emulation auto-**flattens nested
-     observation/action spaces** into flat tensors and adds only tens of
-     microseconds of overhead.
-   - **Native path (full speed):** implement the env against the
-     **`pufferlib.PufferEnv`** API so observations/actions live in PufferLib's
-     **shared-memory buffers** with no per-step Python object churn.
-   - **Ocean path (maximum speed):** port the quadruped step kernel to C as an
-     **Ocean** environment (`pave_train/ocean/quadruped.c`, built via
-     `bash build.sh quadruped`). This is what unlocks the multi-million steps/s
-     numbers; the analytic Python backend stays as the readable reference.
-
-2. **Vectorization layer — run thousands of twins at once.**
-   - Build vectorized envs with **`pufferlib.vector.make(..., backend=...)`** using
-     the **`Multiprocessing`** backend (Serial for debugging, Ray for multi-node).
-   - Lean on PufferLib's **synchronous shared-memory vectorization** (flags instead
-     of IPC) and **asynchronous double-buffering** (the `M >> N` principle) to mask
-     simulation latency behind GPU training. Tune via `vec.*` (e.g. `vec.num_envs`,
-     `vec.num_workers`).
-
-3. **Training layer — replace the bootstrap loop with PuffeRL.**
-   - Drive training with **PuffeRL** (`puffer train quadruped` /
-     `python -m pufferlib.pufferl train`), a PPO variant with **GAE+VTrace
-     advantages, Muon optimizer, prioritized replay**, and **cudagraph**-captured
-     rollout/minibatch traces over statically-allocated buffers.
-   - Optionally adopt the **PuffeNet** policy (parallelizable MinGRU + highway
-     networks) for a faster-than-LSTM recurrent core if the gait needs memory.
-
-4. **Deployment layer — export to MLX for on-device inference.**
-   - After training, run `pave_train/export_policy.py` to convert the PuffeRL/Torch
-     actor weights into the same `MlxPolicy` MLP shape the template already loads,
-     then let the PyQt console's `PolicyRuntime` serve it on Apple Silicon. **No
-     CUDA at inference time** — PufferLib trained it, MLX runs it.
-   - Keep the observation normalization and action scaling identical on both sides
-     (one shared config in `pave_sim`) so exported weights are valid without
-     retraining.
-
-5. **Tuning + observability layer.**
-   - Use **`puffer sweep`** with the **Protein** hyperparameter optimizer
-     (Gaussian-process + genetic search over the cost/score Pareto frontier) for
-     automated sweeps; `--sweep.gpus N` / `--train.gpus N` scale out on the DGX
-     reference box.
-   - Surface PufferLib's **steps/s (SPS)** and episode-return metrics in the PyQt
-     console's status panel so training throughput is observable alongside the
-     twin, mirroring how the template prints inference timings.
-
-### 4.3 Performance benefits this unlocks
-
-| PufferLib feature | Benefit to OpenPAVE |
-|-------------------|---------------------|
-| Ocean C environments + `PufferEnv` shared memory | Twin runs at **millions of steps/s**, not the single-env Python loop |
-| Synchronous (shared-mem flags) + async (double-buffer) vectorization | Thousands of parallel twins, GPU never starves |
-| PuffeRL PPO (GAE+VTrace, Muon, cudagraphs, static allocation) | Real RL gait training in seconds–minutes, not a supervised stand-in |
-| Protein sweeps | Automated hyperparameter search instead of hand-tuning |
-| Torch-train → MLX-export split | Fast training anywhere; **CUDA-free Apple Silicon inference** |
-
-### 4.4 macOS caveat (train vs. deploy)
-
-PufferLib's **20M steps/s figure is the native CUDA backend** — that path belongs to
-the **DGX Spark reference box**, not the MacBook. On Apple Silicon, use PufferLib's
-**PyTorch backend** (CPU, or MPS where supported) for PuffeRL; the **C env +
-vectorization speedups still apply** and give a large multiple over a pure-Python
-loop. This reinforces the architecture: **train on the DGX (or any CUDA host) with
-PufferLib, export, and infer on the Mac with MLX.** For small twins, the Mac's
-Torch+MPS path is sufficient to train locally end-to-end.
-
-### 4.5 Expected speed gains on Apple Silicon (MLX context)
-
-We are targeting **MLX / Metal, not CUDA**, so PufferLib's headline 20M steps/s
-(native CUDA) is *not* our number. The gains split by where the work runs:
-
-- **Environment stepping is CPU + C, not CUDA** — this is where most of PufferLib's
-  speed comes from, and Apple Silicon P-cores are competitive here. Ocean C envs +
-  shared-memory vectorization carry over to the Mac largely intact.
-- **The learner (policy fwd/bwd + optimizer) is GPU-bound** — on Mac that means
-  Torch **MPS**, which lands well below CUDA but well above CPU-only Torch.
-- **Inference/deployment is MLX** — sub-millisecond per action for the small MLP
-  policy; never the bottleneck, and runs natively on Metal with no CUDA.
-
-The table below is an **order-of-magnitude inference from PufferLib's published
-figures**, re-scaled for an Apple Silicon laptop (e.g. M3/M4 Pro–Max) and a *small*
-twin like the cart-pole/quadruped. Treat these as expectations to **benchmark on
-your hardware**, not guarantees — actual numbers depend on chip, core count, env
-complexity, and policy size.
-
-| Path | Runs on | Est. throughput (Apple Silicon, small twin) | Gain vs. baseline |
-|------|---------|---------------------------------------------|-------------------|
-| Template single-process Python env loop (baseline) | CPU (Python) | ~10k–100k env steps/s | 1× |
-| PufferLib emulation + `Multiprocessing` vectorization (Python env) | CPU, shared mem | ~0.2M–1M steps/s | **~5–20×** |
-| PufferLib **Ocean C env** + vectorization | CPU (C), shared mem | ~1M–5M steps/s | **~50–500×** |
-| End-to-end PuffeRL learner (env + policy + PPO) | Torch **MPS** | ~0.1M–1M SPS | **~10–50×** vs CPU-Torch (<200k) |
-| Exported policy inference (deployment) | **MLX / Metal** | sub-ms per action (latency-bound) | native, CUDA-free |
-| *Reference only:* same stack on DGX Spark | CUDA | up to 5M (Torch) / 20M (native) SPS | DGX path, not the Mac |
-
-**Bottom line for the MLX port:** the realistic, repeatable win on the MacBook is
-the **env + vectorization layer (tens to hundreds of × over the template's Python
-loop)**, which is exactly the layer that is *not* CUDA-dependent. The learner is
-faster than a naive CPU loop but is the part that benefits most from moving to the
-DGX. Practically: prototype and train small twins locally at hundreds-of-thousands
-to low-millions of steps/s, push large/long runs to the CUDA box, and always deploy
-the resulting policy on-device with MLX.
-
-### 4.6 What needs porting to MLX (and what doesn't)
-
-PufferLib ships **no MLX runtime** — its fast paths are C (environments) and PyTorch
-/ CUDA (learner). That sounds like a big port, but it isn't, because PufferLib's
-speed lives in two very different layers and **only one of them is PyTorch**:
-
-| Layer | Written in | Port for macOS? |
-|-------|-----------|-----------------|
-| Environment stepping (Ocean envs, `PufferEnv`) | **C** (compiled per-env) | ✅ native arm64 — no port |
-| Vectorization (`pufferlib.vector`, multiprocessing, shared memory, async double-buffer) | Python + NumPy + OS primitives | ✅ portable — no port |
-| Emulation (space flattening), Protein sweeps | NumPy / Python | ✅ no port |
-| **Learner / PuffeRL** (policy net, PPO update, optimizer) | **PyTorch** (+ a CUDA backend for the 20M sps figure) | ⚠️ the only PyTorch-bound part |
-
-The multi-million-steps/s numbers come from the **C env + vectorization** layer,
-which is already native on Apple Silicon — so the bulk of the win needs **zero
-porting**. Only the **learner** is PyTorch-bound, and even that is optional: it runs
-on **Torch MPS** today with `device="mps"`. You port to MLX only for a genuinely
-MLX-native learner (and the deployment benefit below).
-
-If you do port the learner, the surface is small and maps cleanly:
-
-| PyTorch (PuffeRL) | MLX equivalent | Notes |
-|-------------------|----------------|-------|
-| `torch.nn` policy/value net | `mlx.nn.Module` | mechanical; MinGRU+highway is just matmuls |
-| `torch.optim.Adam` | `mlx.optimizers.Adam` | drop-in |
-| **Muon** optimizer | reimplement, or fall back to Adam | not in MLX |
-| `loss.backward()` autograd | `mlx.nn.value_and_grad` | same PPO-CLIP / value / entropy loss |
-| `torch.distributions.Categorical` | `mx.random.categorical` + manual log-prob | action sampling |
-| `torch.from_numpy(obs)` (zero-copy) | `mx.array(obs)` | unified memory; the env↔learner seam |
-| `.to('cuda')` device moves | **nothing** | MLX is unified-memory — a simplification |
-| `torch.compile` / cudagraphs | `mx.compile` | the analogous kernel-fusion lever |
-| GAE / VTrace advantages | NumPy (or MLX) | array math, backend-agnostic, trivial |
-
-**Recommendation: don't translate PuffeRL's PyTorch internals.** Keep PufferLib as
-the **env + vectorization** layer (all C/NumPy, its actual strength) and write a
-**compact MLX PPO learner** (~few hundred lines) that consumes the NumPy obs/action
-buffers it hands you — the same `MlxPolicy` pattern already in the template. You are
-not forking a CUDA codebase; you are replacing one swappable component behind a
-buffer interface.
-
-Bonus: an MLX learner **unifies training and inference under MLX**, which removes the
-PyTorch→MLX `export_policy.py` conversion step from §4.1 — train in MLX, serve in
-MLX, no bridge. So the concrete "port" is just: **policy module + optimizer +
-loss/grad + a NumPy↔`mx.array` bridge for the env buffers.**
+This space has been intentionally left blank.
 
 ---
 
@@ -650,7 +465,7 @@ V-JEPA/DINO engines directly.
 ### Step 0 — Mac dev environment
 
 ```bash
-cd /Users/scottphillips/Documents/GitHub/openpave
+cd  GitHub/openpave
 python3 -m venv .venv && source .venv/bin/activate
 python3 -m pip install -U pip
 python3 -m pip install -r intent_ingress/requirements.txt
@@ -759,7 +574,7 @@ python3 -m pave_mlx.openai_shim --backend dino --port 8000
 Notes:
 
 - **Real DINOv3 vs fallback.** `DinoBackend` loads the real `DinoV3InferenceEngine`
-  from `JEPA_APP_DIR` (default `/Users/scottphillips/Documents/jepa`) when `mlx` +
+  from `JEPA_APP_DIR` (default ` jepa`) when `mlx` +
   `mlx-image` are present; otherwise it uses a deterministic NumPy featurizer so the
   shim still runs. Install `mlx-image` into the venv to flip `backend_mode` from
   `fallback` to `dinov3` with no code change. Inspect the active mode in the
