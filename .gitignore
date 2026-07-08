@@ -11,3 +11,21 @@ todo_cn.md
 docker/
 pw_profile_livevlm/
 ui/live-vlm-webui/.venv/
+
+# User files:
+.AGENT/
+/AGENT/
+AGENT/
+.svelte-kit
+node_modules
+
+.SUPPORT/
+/SUPPORT/
+SUPPORT/
+
+# User models:
+models
+/models/
+/MODELS/
+.caches/
+.caches

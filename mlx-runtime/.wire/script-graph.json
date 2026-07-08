@@ -1,0 +1,109 @@
+{
+  "edges": [
+    {
+      "evidence": [
+        {
+          "line": 1,
+          "path": "main.py",
+          "text": "python entry"
+        }
+      ],
+      "from": "entry:./main.py",
+      "fromPort": "exec",
+      "id": "edge:entry:./main.py->module:main.py:launches",
+      "kind": "launches",
+      "to": "module:main.py",
+      "toPort": "process"
+    },
+    {
+      "evidence": [
+        {
+          "line": 31,
+          "path": "main.py",
+          "text": "from state_server import StateServer"
+        }
+      ],
+      "from": "module:main.py",
+      "fromPort": "imports",
+      "id": "edge:module:main.py->module:state_server.py:imports",
+      "kind": "imports",
+      "to": "module:state_server.py",
+      "toPort": "exports"
+    }
+  ],
+  "entryPoints": [
+    {
+      "id": "entry:./main.py",
+      "kind": "python",
+      "path": "./main.py"
+    }
+  ],
+  "generatedAt": "2026-07-03T05:58:20.269876+00:00",
+  "isPartial": false,
+  "nodes": [
+    {
+      "evidence": [],
+      "id": "entry:./main.py",
+      "inputs": [],
+      "kind": "entry_point",
+      "outputs": [
+        "exec"
+      ],
+      "path": "./main.py",
+      "position": {
+        "x": 60.0,
+        "y": 70.0
+      },
+      "subtitle": "python entry point",
+      "title": "main.py"
+    },
+    {
+      "evidence": [],
+      "id": "module:main.py",
+      "inputs": [
+        "process"
+      ],
+      "kind": "module",
+      "metrics": {
+        "classes": 0,
+        "functions": 6,
+        "lines": 171,
+        "localImports": 1
+      },
+      "outputs": [
+        "imports"
+      ],
+      "path": "main.py",
+      "position": {
+        "x": 360.0,
+        "y": 70.0
+      },
+      "subtitle": "orchestration module",
+      "title": "main.py"
+    },
+    {
+      "evidence": [],
+      "id": "module:state_server.py",
+      "inputs": [
+        "exports"
+      ],
+      "kind": "module",
+      "metrics": {
+        "classes": 3,
+        "functions": 13,
+        "lines": 212,
+        "localImports": 0
+      },
+      "outputs": [],
+      "path": "state_server.py",
+      "position": {
+        "x": 660.0,
+        "y": 70.0
+      },
+      "subtitle": "python module",
+      "title": "state_server.py"
+    }
+  ],
+  "root": "/Users/scottphillips/Documents/GitHub/openpave/mlx-runtime",
+  "schemaVersion": 1
+}

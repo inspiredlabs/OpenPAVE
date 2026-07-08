@@ -1,0 +1,12 @@
+{
+  "backend": "dino",
+  "feature_dim": 384,
+  "intent_schema_version": "0.1",
+  "labels": ["STOP", "TROT", "HOME", "LEFT", "RIGHT"],
+  "model_id": "vit_small_patch16_224.dinov3",
+  "pooling": "mean_patch",
+  "safe_default": "STOP",
+  "schema": "pave-intent-head/0.1",
+  "trained": false,
+  "weights": "heads/weights/dino.npz"
+}

@@ -1,0 +1,971 @@
+{
+  "edges": [
+    {
+      "evidence": [
+        {
+          "line": 121,
+          "path": "mlx-runtime.sh",
+          "text": "\"$PYBIN\" -m pave_mlx.downloads || true"
+        }
+      ],
+      "from": "entry:./mlx-runtime.sh",
+      "fromPort": "exec",
+      "id": "edge:entry:./mlx-runtime.sh->module:pave_mlx/downloads.py:launches",
+      "kind": "launches",
+      "to": "module:pave_mlx/downloads.py",
+      "toPort": "process"
+    },
+    {
+      "evidence": [
+        {
+          "line": 126,
+          "path": "mlx-runtime.sh",
+          "text": "exec \"$PYBIN\" -m pave_ui.viewer"
+        }
+      ],
+      "from": "entry:./mlx-runtime.sh",
+      "fromPort": "exec",
+      "id": "edge:entry:./mlx-runtime.sh->module:pave_ui/viewer.py:launches",
+      "kind": "launches",
+      "to": "module:pave_ui/viewer.py",
+      "toPort": "process"
+    },
+    {
+      "evidence": [
+        {
+          "line": 11,
+          "path": "pave_mlx/backends.py",
+          "text": "from __future__ import annotations"
+        }
+      ],
+      "from": "module:pave_mlx/backends.py",
+      "fromPort": "imports",
+      "id": "edge:module:pave_mlx/backends.py->module:pave_mlx/__init__.py:imports",
+      "kind": "imports",
+      "to": "module:pave_mlx/__init__.py",
+      "toPort": "exports"
+    },
+    {
+      "evidence": [
+        {
+          "line": 601,
+          "path": "pave_mlx/backends.py",
+          "text": "if root.endswith(\"/v1\"):"
+        }
+      ],
+      "from": "module:pave_mlx/backends.py",
+      "fromPort": "opens",
+      "id": "edge:module:pave_mlx/backends.py->route:/v1:serves",
+      "kind": "serves",
+      "to": "route:/v1",
+      "toPort": "route"
+    },
+    {
+      "evidence": [
+        {
+          "line": 902,
+          "path": "pave_mlx/backends.py",
+          "text": "model_id = os.environ.get(\"GEMMA_E2B_VLM_MODEL\", \"lmstudio-community/gemma-4-E2B-it-MLX-4bit\")"
+        }
+      ],
+      "from": "module:pave_mlx/backends.py",
+      "fromPort": "downloads",
+      "id": "edge:module:pave_mlx/backends.py->weights:lmstudio-community/gemma-4-E2B-it-MLX-4bit:downloads",
+      "kind": "downloads",
+      "to": "weights:lmstudio-community/gemma-4-E2B-it-MLX-4bit",
+      "toPort": "weights"
+    },
+    {
+      "evidence": [
+        {
+          "line": 894,
+          "path": "pave_mlx/backends.py",
+          "text": "model_id = os.environ.get(\"GEMMA_VLM_MODEL\", \"lmstudio-community/gemma-4-E4B-it-MLX-4bit\")"
+        }
+      ],
+      "from": "module:pave_mlx/backends.py",
+      "fromPort": "downloads",
+      "id": "edge:module:pave_mlx/backends.py->weights:lmstudio-community/gemma-4-E4B-it-MLX-4bit:downloads",
+      "kind": "downloads",
+      "to": "weights:lmstudio-community/gemma-4-E4B-it-MLX-4bit",
+      "toPort": "weights"
+    },
+    {
+      "evidence": [
+        {
+          "line": 888,
+          "path": "pave_mlx/backends.py",
+          "text": "model_id = os.environ.get(\"QWEN_2B_VLM_MODEL\", \"mlx-community/Qwen3-VL-2B-Instruct-3bit\")"
+        }
+      ],
+      "from": "module:pave_mlx/backends.py",
+      "fromPort": "downloads",
+      "id": "edge:module:pave_mlx/backends.py->weights:mlx-community/Qwen3-VL-2B-Instruct-3bit:downloads",
+      "kind": "downloads",
+      "to": "weights:mlx-community/Qwen3-VL-2B-Instruct-3bit",
+      "toPort": "weights"
+    },
+    {
+      "evidence": [
+        {
+          "line": 882,
+          "path": "pave_mlx/backends.py",
+          "text": "model_id = os.environ.get(\"QWEN_VLM_MODEL\", \"mlx-community/Qwen3-VL-4B-Instruct-3bit\")"
+        }
+      ],
+      "from": "module:pave_mlx/backends.py",
+      "fromPort": "downloads",
+      "id": "edge:module:pave_mlx/backends.py->weights:mlx-community/Qwen3-VL-4B-Instruct-3bit:downloads",
+      "kind": "downloads",
+      "to": "weights:mlx-community/Qwen3-VL-4B-Instruct-3bit",
+      "toPort": "weights"
+    },
+    {
+      "evidence": [
+        {
+          "line": 954,
+          "path": "pave_mlx/backends.py",
+          "text": "model_id = os.environ.get(\"FALCON_PERCEPTION_MODEL\", \"tiiuae/Falcon-Perception\")"
+        }
+      ],
+      "from": "module:pave_mlx/backends.py",
+      "fromPort": "downloads",
+      "id": "edge:module:pave_mlx/backends.py->weights:tiiuae/Falcon-Perception:downloads",
+      "kind": "downloads",
+      "to": "weights:tiiuae/Falcon-Perception",
+      "toPort": "weights"
+    },
+    {
+      "evidence": [
+        {
+          "line": 3,
+          "path": "pave_mlx/downloads.py",
+          "text": "from __future__ import annotations"
+        }
+      ],
+      "from": "module:pave_mlx/downloads.py",
+      "fromPort": "imports",
+      "id": "edge:module:pave_mlx/downloads.py->module:pave_mlx/__init__.py:imports",
+      "kind": "imports",
+      "to": "module:pave_mlx/__init__.py",
+      "toPort": "exports"
+    },
+    {
+      "evidence": [
+        {
+          "line": 12,
+          "path": "pave_mlx/downloads.py",
+          "text": "from pave_mlx.backends import backend_model_id"
+        }
+      ],
+      "from": "module:pave_mlx/downloads.py",
+      "fromPort": "imports",
+      "id": "edge:module:pave_mlx/downloads.py->module:pave_mlx/backends.py:imports",
+      "kind": "imports",
+      "to": "module:pave_mlx/backends.py",
+      "toPort": "exports"
+    },
+    {
+      "evidence": [
+        {
+          "line": 7,
+          "path": "pave_mlx/heads/base.py",
+          "text": "from __future__ import annotations"
+        }
+      ],
+      "from": "module:pave_mlx/heads/base.py",
+      "fromPort": "imports",
+      "id": "edge:module:pave_mlx/heads/base.py->module:pave_mlx/heads/__init__.py:imports",
+      "kind": "imports",
+      "to": "module:pave_mlx/heads/__init__.py",
+      "toPort": "exports"
+    },
+    {
+      "evidence": [
+        {
+          "line": 12,
+          "path": "pave_mlx/heads/embedding_probe.py",
+          "text": "from __future__ import annotations"
+        }
+      ],
+      "from": "module:pave_mlx/heads/embedding_probe.py",
+      "fromPort": "imports",
+      "id": "edge:module:pave_mlx/heads/embedding_probe.py->module:pave_mlx/heads/__init__.py:imports",
+      "kind": "imports",
+      "to": "module:pave_mlx/heads/__init__.py",
+      "toPort": "exports"
+    },
+    {
+      "evidence": [
+        {
+          "line": 18,
+          "path": "pave_mlx/heads/embedding_probe.py",
+          "text": "from pave_mlx.heads.base import INTENT_LABELS, softmax"
+        }
+      ],
+      "from": "module:pave_mlx/heads/embedding_probe.py",
+      "fromPort": "imports",
+      "id": "edge:module:pave_mlx/heads/embedding_probe.py->module:pave_mlx/heads/base.py:imports",
+      "kind": "imports",
+      "to": "module:pave_mlx/heads/base.py",
+      "toPort": "exports"
+    },
+    {
+      "evidence": [
+        {
+          "line": 9,
+          "path": "pave_mlx/intent_decode.py",
+          "text": "from __future__ import annotations"
+        }
+      ],
+      "from": "module:pave_mlx/intent_decode.py",
+      "fromPort": "imports",
+      "id": "edge:module:pave_mlx/intent_decode.py->module:pave_mlx/__init__.py:imports",
+      "kind": "imports",
+      "to": "module:pave_mlx/__init__.py",
+      "toPort": "exports"
+    },
+    {
+      "evidence": [
+        {
+          "line": 13,
+          "path": "pave_mlx/intent_decode.py",
+          "text": "from pave_mlx.heads.base import INTENT_LABELS, SAFE_DEFAULT, softmax"
+        }
+      ],
+      "from": "module:pave_mlx/intent_decode.py",
+      "fromPort": "imports",
+      "id": "edge:module:pave_mlx/intent_decode.py->module:pave_mlx/heads/base.py:imports",
+      "kind": "imports",
+      "to": "module:pave_mlx/heads/base.py",
+      "toPort": "exports"
+    },
+    {
+      "evidence": [
+        {
+          "line": 15,
+          "path": "pave_mlx/mlx_mem.py",
+          "text": "from __future__ import annotations"
+        }
+      ],
+      "from": "module:pave_mlx/mlx_mem.py",
+      "fromPort": "imports",
+      "id": "edge:module:pave_mlx/mlx_mem.py->module:pave_mlx/__init__.py:imports",
+      "kind": "imports",
+      "to": "module:pave_mlx/__init__.py",
+      "toPort": "exports"
+    },
+    {
+      "evidence": [
+        {
+          "line": 823,
+          "path": "pave_ui/perception.py",
+          "text": "man = HeadManifest.load(PKG_DIR / \"heads\" / \"configs\" / \"dino.json\")"
+        }
+      ],
+      "from": "module:pave_ui/perception.py",
+      "fromPort": "config",
+      "id": "edge:module:pave_ui/perception.py->asset:pave_mlx/heads/configs/dino.json:reads",
+      "kind": "reads",
+      "to": "asset:pave_mlx/heads/configs/dino.json",
+      "toPort": "data"
+    },
+    {
+      "evidence": [
+        {
+          "line": 149,
+          "path": "pave_ui/perception.py",
+          "text": "from pave_mlx.backends import backend_model_id"
+        }
+      ],
+      "from": "module:pave_ui/perception.py",
+      "fromPort": "imports",
+      "id": "edge:module:pave_ui/perception.py->module:pave_mlx/backends.py:imports",
+      "kind": "imports",
+      "to": "module:pave_mlx/backends.py",
+      "toPort": "exports"
+    },
+    {
+      "evidence": [
+        {
+          "line": 771,
+          "path": "pave_ui/perception.py",
+          "text": "from pave_mlx.downloads import print_model_download_report"
+        }
+      ],
+      "from": "module:pave_ui/perception.py",
+      "fromPort": "imports",
+      "id": "edge:module:pave_ui/perception.py->module:pave_mlx/downloads.py:imports",
+      "kind": "imports",
+      "to": "module:pave_mlx/downloads.py",
+      "toPort": "exports"
+    },
+    {
+      "evidence": [
+        {
+          "line": 820,
+          "path": "pave_ui/perception.py",
+          "text": "from pave_mlx.heads.base import PKG_DIR, HeadManifest"
+        }
+      ],
+      "from": "module:pave_ui/perception.py",
+      "fromPort": "imports",
+      "id": "edge:module:pave_ui/perception.py->module:pave_mlx/heads/base.py:imports",
+      "kind": "imports",
+      "to": "module:pave_mlx/heads/base.py",
+      "toPort": "exports"
+    },
+    {
+      "evidence": [
+        {
+          "line": 821,
+          "path": "pave_ui/perception.py",
+          "text": "from pave_mlx.heads.embedding_probe import EmbeddingProbe"
+        }
+      ],
+      "from": "module:pave_ui/perception.py",
+      "fromPort": "imports",
+      "id": "edge:module:pave_ui/perception.py->module:pave_mlx/heads/embedding_probe.py:imports",
+      "kind": "imports",
+      "to": "module:pave_mlx/heads/embedding_probe.py",
+      "toPort": "exports"
+    },
+    {
+      "evidence": [
+        {
+          "line": 836,
+          "path": "pave_ui/perception.py",
+          "text": "from pave_mlx.intent_decode import decode"
+        }
+      ],
+      "from": "module:pave_ui/perception.py",
+      "fromPort": "imports",
+      "id": "edge:module:pave_ui/perception.py->module:pave_mlx/intent_decode.py:imports",
+      "kind": "imports",
+      "to": "module:pave_mlx/intent_decode.py",
+      "toPort": "exports"
+    },
+    {
+      "evidence": [
+        {
+          "line": 15,
+          "path": "pave_ui/perception.py",
+          "text": "from __future__ import annotations"
+        }
+      ],
+      "from": "module:pave_ui/perception.py",
+      "fromPort": "imports",
+      "id": "edge:module:pave_ui/perception.py->module:pave_ui/__init__.py:imports",
+      "kind": "imports",
+      "to": "module:pave_ui/__init__.py",
+      "toPort": "exports"
+    },
+    {
+      "evidence": [
+        {
+          "line": 1047,
+          "path": "pave_ui/perception.py",
+          "text": "FALCON_FAST_MODEL = os.environ.get(\"PAVE_FALCON_FAST_MODEL\", \"tiiuae/Falcon-Perception-300M\")"
+        }
+      ],
+      "from": "module:pave_ui/perception.py",
+      "fromPort": "downloads",
+      "id": "edge:module:pave_ui/perception.py->weights:tiiuae/Falcon-Perception-300M:downloads",
+      "kind": "downloads",
+      "to": "weights:tiiuae/Falcon-Perception-300M",
+      "toPort": "weights"
+    },
+    {
+      "evidence": [
+        {
+          "line": 1048,
+          "path": "pave_ui/perception.py",
+          "text": "FALCON_QUALITY_MODEL = os.environ.get(\"PAVE_FALCON_QUALITY_MODEL\", \"tiiuae/Falcon-Perception\")"
+        }
+      ],
+      "from": "module:pave_ui/perception.py",
+      "fromPort": "downloads",
+      "id": "edge:module:pave_ui/perception.py->weights:tiiuae/Falcon-Perception:downloads",
+      "kind": "downloads",
+      "to": "weights:tiiuae/Falcon-Perception",
+      "toPort": "weights"
+    },
+    {
+      "evidence": [
+        {
+          "line": 72,
+          "path": "pave_ui/viewer.py",
+          "text": "PAVE_MLX_CONFIGS = REPO_ROOT / \"pave_mlx\" / \"heads\" / \"configs\""
+        }
+      ],
+      "from": "module:pave_ui/viewer.py",
+      "fromPort": "config",
+      "id": "edge:module:pave_ui/viewer.py->asset:pave_mlx/heads/configs/dino.json:reads",
+      "kind": "reads",
+      "to": "asset:pave_mlx/heads/configs/dino.json",
+      "toPort": "data"
+    },
+    {
+      "evidence": [
+        {
+          "line": 72,
+          "path": "pave_ui/viewer.py",
+          "text": "PAVE_MLX_CONFIGS = REPO_ROOT / \"pave_mlx\" / \"heads\" / \"configs\""
+        }
+      ],
+      "from": "module:pave_ui/viewer.py",
+      "fromPort": "config",
+      "id": "edge:module:pave_ui/viewer.py->asset:pave_mlx/requirements.txt:reads",
+      "kind": "reads",
+      "to": "asset:pave_mlx/requirements.txt",
+      "toPort": "data"
+    },
+    {
+      "evidence": [
+        {
+          "line": 100,
+          "path": "pave_ui/viewer.py",
+          "text": "from pave_mlx import mlx_mem  # noqa: E402  (Metal wired-limit / cache helpers)"
+        }
+      ],
+      "from": "module:pave_ui/viewer.py",
+      "fromPort": "imports",
+      "id": "edge:module:pave_ui/viewer.py->module:pave_mlx/__init__.py:imports",
+      "kind": "imports",
+      "to": "module:pave_mlx/__init__.py",
+      "toPort": "exports"
+    },
+    {
+      "evidence": [
+        {
+          "line": 100,
+          "path": "pave_ui/viewer.py",
+          "text": "from pave_mlx import mlx_mem  # noqa: E402  (Metal wired-limit / cache helpers)"
+        }
+      ],
+      "from": "module:pave_ui/viewer.py",
+      "fromPort": "imports",
+      "id": "edge:module:pave_ui/viewer.py->module:pave_mlx/mlx_mem.py:imports",
+      "kind": "imports",
+      "to": "module:pave_mlx/mlx_mem.py",
+      "toPort": "exports"
+    },
+    {
+      "evidence": [
+        {
+          "line": 22,
+          "path": "pave_ui/viewer.py",
+          "text": "from __future__ import annotations"
+        }
+      ],
+      "from": "module:pave_ui/viewer.py",
+      "fromPort": "imports",
+      "id": "edge:module:pave_ui/viewer.py->module:pave_ui/__init__.py:imports",
+      "kind": "imports",
+      "to": "module:pave_ui/__init__.py",
+      "toPort": "exports"
+    },
+    {
+      "evidence": [
+        {
+          "line": 99,
+          "path": "pave_ui/viewer.py",
+          "text": "from pave_ui import perception  # noqa: E402  (in-process feature-overlay engines)"
+        }
+      ],
+      "from": "module:pave_ui/viewer.py",
+      "fromPort": "imports",
+      "id": "edge:module:pave_ui/viewer.py->module:pave_ui/perception.py:imports",
+      "kind": "imports",
+      "to": "module:pave_ui/perception.py",
+      "toPort": "exports"
+    },
+    {
+      "evidence": [
+        {
+          "line": 1326,
+          "path": "pave_ui/viewer.py",
+          "text": "req = urllib.request.Request(f\"http://127.0.0.1:{INTENT_PORT}/intent\", data=data,"
+        }
+      ],
+      "from": "module:pave_ui/viewer.py",
+      "fromPort": "opens",
+      "id": "edge:module:pave_ui/viewer.py->route:/intent:serves",
+      "kind": "serves",
+      "to": "route:/intent",
+      "toPort": "route"
+    }
+  ],
+  "entryPoints": [
+    {
+      "id": "entry:./mlx-runtime.sh",
+      "kind": "shell",
+      "path": "./mlx-runtime.sh"
+    }
+  ],
+  "generatedAt": "2026-07-03T12:05:04.493922+00:00",
+  "isPartial": false,
+  "nodes": [
+    {
+      "evidence": [],
+      "id": "asset:pave_mlx/heads/configs/dino.json",
+      "inputs": [
+        "data"
+      ],
+      "kind": "asset",
+      "outputs": [],
+      "path": "pave_mlx/heads/configs/dino.json",
+      "position": {
+        "x": 60.0,
+        "y": 240.0
+      },
+      "subtitle": "local asset",
+      "title": "pave_mlx/heads/configs/dino.json"
+    },
+    {
+      "evidence": [],
+      "id": "asset:pave_mlx/requirements.txt",
+      "inputs": [
+        "data"
+      ],
+      "kind": "asset",
+      "outputs": [],
+      "path": "pave_mlx/requirements.txt",
+      "position": {
+        "x": 60.0,
+        "y": 410.0
+      },
+      "subtitle": "local asset",
+      "title": "pave_mlx/requirements.txt"
+    },
+    {
+      "evidence": [],
+      "id": "entry:./mlx-runtime.sh",
+      "inputs": [],
+      "kind": "entry_point",
+      "outputs": [
+        "exec"
+      ],
+      "path": "./mlx-runtime.sh",
+      "position": {
+        "x": 60.0,
+        "y": 70.0
+      },
+      "subtitle": "shell entry point",
+      "title": "mlx-runtime.sh"
+    },
+    {
+      "evidence": [],
+      "id": "module:pave_mlx/__init__.py",
+      "inputs": [
+        "exports"
+      ],
+      "kind": "module",
+      "metrics": {
+        "classes": 0,
+        "functions": 0,
+        "lines": 12,
+        "localImports": 0
+      },
+      "outputs": [],
+      "path": "pave_mlx/__init__.py",
+      "position": {
+        "x": 660.0,
+        "y": 1090.0
+      },
+      "subtitle": "python module",
+      "title": "pave_mlx/__init__.py"
+    },
+    {
+      "evidence": [],
+      "id": "module:pave_mlx/backends.py",
+      "inputs": [
+        "exports"
+      ],
+      "kind": "module",
+      "metrics": {
+        "classes": 14,
+        "functions": 59,
+        "lines": 1118,
+        "localImports": 1
+      },
+      "outputs": [
+        "imports",
+        "opens",
+        "downloads"
+      ],
+      "path": "pave_mlx/backends.py",
+      "position": {
+        "x": 660.0,
+        "y": 240.0
+      },
+      "subtitle": "python module",
+      "title": "pave_mlx/backends.py"
+    },
+    {
+      "evidence": [],
+      "id": "module:pave_mlx/downloads.py",
+      "inputs": [
+        "process",
+        "exports"
+      ],
+      "kind": "module",
+      "metrics": {
+        "classes": 0,
+        "functions": 20,
+        "lines": 409,
+        "localImports": 2
+      },
+      "outputs": [
+        "imports"
+      ],
+      "path": "pave_mlx/downloads.py",
+      "position": {
+        "x": 360.0,
+        "y": 240.0
+      },
+      "subtitle": "orchestration module",
+      "title": "pave_mlx/downloads.py"
+    },
+    {
+      "evidence": [],
+      "id": "module:pave_mlx/heads/__init__.py",
+      "inputs": [
+        "exports"
+      ],
+      "kind": "module",
+      "metrics": {
+        "classes": 0,
+        "functions": 0,
+        "lines": 1,
+        "localImports": 0
+      },
+      "outputs": [],
+      "path": "pave_mlx/heads/__init__.py",
+      "position": {
+        "x": 660.0,
+        "y": 1260.0
+      },
+      "subtitle": "python module",
+      "title": "pave_mlx/heads/__init__.py"
+    },
+    {
+      "evidence": [],
+      "id": "module:pave_mlx/heads/base.py",
+      "inputs": [
+        "exports"
+      ],
+      "kind": "module",
+      "metrics": {
+        "classes": 2,
+        "functions": 5,
+        "lines": 67,
+        "localImports": 1
+      },
+      "outputs": [
+        "imports"
+      ],
+      "path": "pave_mlx/heads/base.py",
+      "position": {
+        "x": 660.0,
+        "y": 750.0
+      },
+      "subtitle": "python module",
+      "title": "pave_mlx/heads/base.py"
+    },
+    {
+      "evidence": [],
+      "id": "module:pave_mlx/heads/embedding_probe.py",
+      "inputs": [
+        "exports"
+      ],
+      "kind": "module",
+      "metrics": {
+        "classes": 1,
+        "functions": 7,
+        "lines": 85,
+        "localImports": 2
+      },
+      "outputs": [
+        "imports"
+      ],
+      "path": "pave_mlx/heads/embedding_probe.py",
+      "position": {
+        "x": 660.0,
+        "y": 410.0
+      },
+      "subtitle": "python module",
+      "title": "pave_mlx/heads/embedding_probe.py"
+    },
+    {
+      "evidence": [],
+      "id": "module:pave_mlx/intent_decode.py",
+      "inputs": [
+        "exports"
+      ],
+      "kind": "module",
+      "metrics": {
+        "classes": 0,
+        "functions": 1,
+        "lines": 27,
+        "localImports": 2
+      },
+      "outputs": [
+        "imports"
+      ],
+      "path": "pave_mlx/intent_decode.py",
+      "position": {
+        "x": 660.0,
+        "y": 580.0
+      },
+      "subtitle": "python module",
+      "title": "pave_mlx/intent_decode.py"
+    },
+    {
+      "evidence": [],
+      "id": "module:pave_mlx/mlx_mem.py",
+      "inputs": [
+        "exports"
+      ],
+      "kind": "module",
+      "metrics": {
+        "classes": 0,
+        "functions": 9,
+        "lines": 129,
+        "localImports": 1
+      },
+      "outputs": [
+        "imports"
+      ],
+      "path": "pave_mlx/mlx_mem.py",
+      "position": {
+        "x": 660.0,
+        "y": 920.0
+      },
+      "subtitle": "python module",
+      "title": "pave_mlx/mlx_mem.py"
+    },
+    {
+      "evidence": [],
+      "id": "module:pave_ui/__init__.py",
+      "inputs": [
+        "exports"
+      ],
+      "kind": "module",
+      "metrics": {
+        "classes": 0,
+        "functions": 0,
+        "lines": 10,
+        "localImports": 0
+      },
+      "outputs": [],
+      "path": "pave_ui/__init__.py",
+      "position": {
+        "x": 660.0,
+        "y": 1430.0
+      },
+      "subtitle": "python module",
+      "title": "pave_ui/__init__.py"
+    },
+    {
+      "evidence": [],
+      "id": "module:pave_ui/perception.py",
+      "inputs": [
+        "exports"
+      ],
+      "kind": "module",
+      "metrics": {
+        "classes": 5,
+        "functions": 55,
+        "lines": 1155,
+        "localImports": 6
+      },
+      "outputs": [
+        "imports",
+        "config",
+        "downloads"
+      ],
+      "path": "pave_ui/perception.py",
+      "position": {
+        "x": 660.0,
+        "y": 70.0
+      },
+      "subtitle": "python module",
+      "title": "pave_ui/perception.py"
+    },
+    {
+      "evidence": [],
+      "id": "module:pave_ui/viewer.py",
+      "inputs": [
+        "process"
+      ],
+      "kind": "module",
+      "metrics": {
+        "classes": 1,
+        "functions": 64,
+        "lines": 1386,
+        "localImports": 4
+      },
+      "outputs": [
+        "imports",
+        "config",
+        "opens"
+      ],
+      "path": "pave_ui/viewer.py",
+      "position": {
+        "x": 360.0,
+        "y": 70.0
+      },
+      "subtitle": "orchestration module",
+      "title": "pave_ui/viewer.py"
+    },
+    {
+      "evidence": [],
+      "id": "route:/intent",
+      "inputs": [
+        "route"
+      ],
+      "kind": "ui_surface",
+      "outputs": [],
+      "path": "/intent",
+      "position": {
+        "x": 960.0,
+        "y": 70.0
+      },
+      "subtitle": "web route",
+      "title": "/intent"
+    },
+    {
+      "evidence": [],
+      "id": "route:/v1",
+      "inputs": [
+        "route"
+      ],
+      "kind": "ui_surface",
+      "outputs": [],
+      "path": "/v1",
+      "position": {
+        "x": 960.0,
+        "y": 240.0
+      },
+      "subtitle": "web route",
+      "title": "/v1"
+    },
+    {
+      "evidence": [],
+      "id": "weights:lmstudio-community/gemma-4-E2B-it-MLX-4bit",
+      "inputs": [
+        "weights"
+      ],
+      "kind": "model_weights",
+      "metrics": {
+        "sizeBytes": 4372358609
+      },
+      "outputs": [],
+      "path": "/Users/scottphillips/.cache/huggingface/hub/models--lmstudio-community--gemma-4-E2B-it-MLX-4bit",
+      "position": {
+        "x": 1260.0,
+        "y": 70.0
+      },
+      "subtitle": "4.1 GB \u00b7 hf cache",
+      "title": "lmstudio-community/gemma-4-E2B-it-MLX-4bit"
+    },
+    {
+      "evidence": [],
+      "id": "weights:lmstudio-community/gemma-4-E4B-it-MLX-4bit",
+      "inputs": [
+        "weights"
+      ],
+      "kind": "model_weights",
+      "metrics": {
+        "sizeBytes": 6861844992
+      },
+      "outputs": [],
+      "path": "/Users/scottphillips/.cache/huggingface/hub/models--lmstudio-community--gemma-4-E4B-it-MLX-4bit",
+      "position": {
+        "x": 1260.0,
+        "y": 240.0
+      },
+      "subtitle": "6.4 GB \u00b7 hf cache",
+      "title": "lmstudio-community/gemma-4-E4B-it-MLX-4bit"
+    },
+    {
+      "evidence": [],
+      "id": "weights:mlx-community/Qwen3-VL-2B-Instruct-3bit",
+      "inputs": [
+        "weights"
+      ],
+      "kind": "model_weights",
+      "metrics": {
+        "sizeBytes": 1582971257
+      },
+      "outputs": [],
+      "path": "/Users/scottphillips/.cache/huggingface/hub/models--mlx-community--Qwen3-VL-2B-Instruct-3bit",
+      "position": {
+        "x": 1260.0,
+        "y": 410.0
+      },
+      "subtitle": "1.5 GB \u00b7 hf cache",
+      "title": "mlx-community/Qwen3-VL-2B-Instruct-3bit"
+    },
+    {
+      "evidence": [],
+      "id": "weights:mlx-community/Qwen3-VL-4B-Instruct-3bit",
+      "inputs": [
+        "weights"
+      ],
+      "kind": "model_weights",
+      "metrics": {
+        "sizeBytes": 2606948139
+      },
+      "outputs": [],
+      "path": "/Users/scottphillips/.cache/huggingface/hub/models--mlx-community--Qwen3-VL-4B-Instruct-3bit",
+      "position": {
+        "x": 1260.0,
+        "y": 580.0
+      },
+      "subtitle": "2.4 GB \u00b7 hf cache",
+      "title": "mlx-community/Qwen3-VL-4B-Instruct-3bit"
+    },
+    {
+      "evidence": [],
+      "id": "weights:tiiuae/Falcon-Perception",
+      "inputs": [
+        "weights"
+      ],
+      "kind": "model_weights",
+      "metrics": {
+        "sizeBytes": 2540058030
+      },
+      "outputs": [],
+      "path": "/Users/scottphillips/.cache/huggingface/hub/models--tiiuae--Falcon-Perception",
+      "position": {
+        "x": 1260.0,
+        "y": 750.0
+      },
+      "subtitle": "2.4 GB \u00b7 hf cache",
+      "title": "tiiuae/Falcon-Perception"
+    },
+    {
+      "evidence": [],
+      "id": "weights:tiiuae/Falcon-Perception-300M",
+      "inputs": [
+        "weights"
+      ],
+      "kind": "model_weights",
+      "metrics": {
+        "sizeBytes": 1274142978
+      },
+      "outputs": [],
+      "path": "/Users/scottphillips/.cache/huggingface/hub/models--tiiuae--Falcon-Perception-300M",
+      "position": {
+        "x": 1260.0,
+        "y": 920.0
+      },
+      "subtitle": "1.2 GB \u00b7 hf cache",
+      "title": "tiiuae/Falcon-Perception-300M"
+    }
+  ],
+  "root": "/Users/scottphillips/Documents/GitHub/openpave",
+  "schemaVersion": 1
+}

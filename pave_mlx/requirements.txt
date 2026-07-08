@@ -1,0 +1,18 @@
+# pave_mlx — Tier A OpenAI shim + intent heads
+
+# Always required (shim, probe, trainer, labeler).
+numpy>=1.24
+pillow>=10.0          # image decode in openai_shim.py
+
+# Optional VLM server adapter:
+#   vllm-mlx            # PAVE_VLM_RUNTIME=vllm-mlx, external OpenAI-compatible server
+
+# DINOv3 real backend (optional): the heavy MLX stack lives in the sibling jepa
+# app (JEPA_APP_DIR). Without these, backends.py uses a deterministic fallback
+# featurizer so the pipeline still runs.
+#   mlx>=0.13.0
+#   mlx-image            # provides mlxim.model.create_model (DINOv3 weights)
+#   the jepa app on JEPA_APP_DIR (default /Users/scottphillips/Documents/jepa)
+
+# Optional: camera capture in label_frames.py
+#   opencv-python>=4.10

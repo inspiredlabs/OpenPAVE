@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import random
 import subprocess
 import time
 from dataclasses import dataclass
@@ -208,25 +209,103 @@ class PuppyPiAdapter:
 
 
 class MockAdapter:
-    """Dry-run adapter for local development without robot hardware."""
+    """Dry-run adapter for local development without robot hardware.
+
+    The mock intentionally mirrors PuppyPiAdapter's step names and settle delays so
+    local tests exercise the same command-result shape as the ROS2 path.
+    """
 
     name = "mock"
 
+    def __init__(
+        self,
+        *,
+        fail_step: str | None = None,
+        fail_rate: float | None = None,
+        fast: bool | None = None,
+    ) -> None:
+        self.fail_step = fail_step if fail_step is not None else os.environ.get("MOCK_ADAPTER_FAIL_STEP", "")
+        self.fail_rate = (
+            float(fail_rate)
+            if fail_rate is not None
+            else float(os.environ.get("MOCK_ADAPTER_FAIL_RATE", "0") or 0)
+        )
+        self.fast = (
+            fast
+            if fast is not None
+            else os.environ.get("MOCK_ADAPTER_FAST", "0").lower() in {"1", "true", "yes"}
+        )
+        self.pose = {"x": 0.0, "y": 0.0, "heading": 0.0}
+        self.joint_state = {
+            "lf": 0.0,
+            "rf": 0.0,
+            "lb": 0.0,
+            "rb": 0.0,
+        }
+
+    def _sleep(self, seconds: float) -> None:
+        if not self.fast:
+            time.sleep(seconds)
+
+    def _step(self, name: str) -> dict[str, object]:
+        fail_named = bool(self.fail_step) and self.fail_step == name
+        fail_random = self.fail_rate > 0 and random.random() < self.fail_rate
+        return {"name": name, "return_code": 9 if fail_named or fail_random else 0}
+
+    def _result(self, steps: list[dict[str, object]]) -> AdapterActionResult:
+        failed_steps = [step for step in steps if step.get("return_code") != 0]
+        if failed_steps:
+            return AdapterActionResult.failed("one or more adapter steps failed", steps)
+        return AdapterActionResult.ok(steps)
+
+    def get_state(self) -> dict[str, object]:
+        return {
+            "pose": dict(self.pose),
+            "joint_state": dict(self.joint_state),
+        }
+
     def stop(self) -> AdapterActionResult:
         print(f"[{now_iso()}] MOCK ACTION=STOP")
-        return AdapterActionResult.ok([{"name": "mock_stop", "return_code": 0}])
+        steps = [
+            self._step("set_mark_time:false"),
+            self._step("set_running:false"),
+            self._step("go_home"),
+        ]
+        self.joint_state = {key: 0.0 for key in self.joint_state}
+        self._sleep(0.3)
+        return self._result(steps)
 
     def trot(self) -> AdapterActionResult:
         print(f"[{now_iso()}] MOCK ACTION=TROT")
-        return AdapterActionResult.ok([{"name": "mock_trot", "return_code": 0}])
+        steps = [
+            self._step("set_running:true"),
+            self._step("set_mark_time:true"),
+        ]
+        self.joint_state = {key: 0.5 for key in self.joint_state}
+        return self._result(steps)
 
     def home(self) -> AdapterActionResult:
         print(f"[{now_iso()}] MOCK ACTION=HOME")
-        return AdapterActionResult.ok([{"name": "mock_home", "return_code": 0}])
+        steps = [self._step("go_home")]
+        self.pose = {"x": 0.0, "y": 0.0, "heading": 0.0}
+        self.joint_state = {key: 0.0 for key in self.joint_state}
+        self._sleep(0.3)
+        return self._result(steps)
 
     def move(self, vx: float, yaw: float, duration_ms: int) -> AdapterActionResult:
         print(f"[{now_iso()}] MOCK ACTION=MOVE vx={vx} yaw={yaw} duration_ms={duration_ms}")
-        return AdapterActionResult.ok([{"name": "mock_move", "return_code": 0}])
+        steps = [
+            self._step("go_home"),
+            self._step("set_mark_time:false"),
+            self._step("set_running:true"),
+        ]
+        self._sleep(0.3)
+        steps.append(self._step("velocity_move"))
+        if all(step.get("return_code") == 0 for step in steps):
+            seconds = max(0.0, duration_ms / 1000.0)
+            self.pose["x"] += vx * seconds
+            self.pose["heading"] += yaw * seconds
+        return self._result(steps)
 
 
 def create_robot_adapter(name: str | None = None) -> RobotAdapter:

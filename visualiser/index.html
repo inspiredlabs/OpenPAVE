@@ -1,0 +1,457 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>OpenPAVE Robot State Viewer</title>
+  <style>
+    html,
+    body {
+      margin: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: #141619;
+      color: #f2f4f0;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    #scene {
+      position: fixed;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      display: block;
+      cursor: grab;
+    }
+
+    #scene.dragging {
+      cursor: grabbing;
+    }
+
+    /* Shared no-select treatment for the two streamed data blocks + chrome. */
+    .noselect {
+      -webkit-user-select: none;
+      -moz-user-select: none;
+      user-select: none;
+      cursor: default;
+    }
+
+    .title {
+      position: fixed;
+      left: 16px;
+      top: 12px;
+      z-index: 3;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 13px;
+      font-weight: 700;
+      padding: 8px 12px;
+      background: rgba(17, 19, 21, 0.8);
+      border: 1px solid rgba(255, 255, 255, 0.13);
+      backdrop-filter: blur(10px);
+    }
+
+    .title .dot {
+      display: inline-block;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #d6f264;
+      box-shadow: 0 0 8px #d6f264;
+    }
+
+    .title .dot.stale {
+      background: #d47b5d;
+      box-shadow: 0 0 8px #d47b5d;
+    }
+
+    /* "10s OBSERVE" speech bubble, under the banner — the robot "speaks" here.
+       Bubble styling follows the illustrated .triangle-right (gradient, radius,
+       one-element tail); the tail is flipped to the TOP because the bubble
+       hangs below the thing speaking. */
+    #speech {
+      position: fixed;
+      left: 16px;
+      top: 58px;
+      z-index: 3;
+      width: min(320px, 40vw);
+      font: 1.4em/1.4 Menlo, Consolas, "SFMono-Regular", monospace;
+      /* font-size: 12px; */
+    }
+
+    #speech .triangle-right {
+      position: relative;
+      margin: 20px 0 0;
+      /* room for the tail above */
+      padding: 15px;
+      color: #121512;
+      background: #f1f1f1;
+      /* fallback for browsers without gradient support */
+      background: linear-gradient(#fff, #f1f1f1);
+      border-radius: 10px;
+    }
+
+    #speech .triangle-right:after {
+      content: "";
+      position: absolute;
+      top: -20px;
+      /* value = - border-top-width - border-bottom-width */
+      left: 30px;
+      /* controls horizontal position — under the banner dot */
+      border-width: 0 0 20px 20px;
+      /* vary these values to change the angle of the vertex */
+      border-style: solid;
+      border-color: #fff transparent;
+      /* matches the gradient start at the top */
+      display: block;
+      width: 0;
+    }
+
+    #speech .obs-label {
+      display: none;
+      /* font-size: 10px; */
+      color: #6b7a6c;
+      margin-bottom: 4px;
+    }
+
+    #copy {
+      font-family: Menlo, Consolas, "SFMono-Regular", monospace;
+      font-size: 11px;
+      font-weight: 650;
+      color: #121512;
+      background: #d6f264;
+      border: 1px solid #d6f264;
+      border-radius: 5px;
+      padding: 4px 9px;
+      cursor: pointer;
+      -webkit-user-select: none;
+      user-select: none;
+    }
+
+    #copy:active {
+      transform: translateY(1px);
+    }
+
+    /* Monospace serialised time-series overlay, on top of the ThreeJS canvas. */
+    #stream {
+      position: fixed;
+      right: 16px;
+      top: 12px;
+      bottom: 12px;
+      width: min(320px, 24vw);
+      z-index: 3;
+      margin: 0;
+      padding: 12px 14px;
+      box-sizing: border-box;
+      overflow: hidden;
+      background: rgba(12, 14, 16, 0.82);
+      border: 1px solid rgba(255, 255, 255, 0.13);
+      backdrop-filter: blur(10px);
+      color: #cfe8cf;
+      font-family: Menlo, Consolas, "SFMono-Regular", monospace;
+      font-size: 11px;
+      line-height: 1.45;
+      white-space: pre;
+      letter-spacing: 0.2px;
+    }
+
+    #stream .hdr {
+      color: #9fb6a0;
+    }
+
+    #stream .sep {
+      color: rgba(255, 255, 255, 0.18);
+    }
+
+    @media (max-width: 760px) {
+      #stream {
+        width: 92vw;
+        left: 16px;
+        right: 16px;
+        top: auto;
+        height: 42vh;
+        bottom: 12px;
+      }
+    }
+  </style>
+
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+      "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+
+<body>
+  <canvas id="scene"></canvas>
+  <div class="title noselect">
+    <span class="dot" id="dot"></span>
+    <span>OpenPAVE Robot State</span>
+    <button id="copy">COPY FRAME</button>
+  </div>
+  <div id="speech" class="noselect" hidden>
+    <p class="triangle-right"><span class="obs-label" id="speech-label"></span><span id="speech-text"></span></p>
+  </div>
+  <pre id="stream" class="noselect">connecting to /api/stream …</pre>
+
+  <script type="module">
+    import * as THREE from 'three';
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+    import { STLLoader } from 'three/addons/loaders/STLLoader.js';
+
+    // ── renderer / scene ────────────────────────────────────────────
+    const canvas = document.getElementById('scene');
+    const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFShadowMap;
+
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x141619);
+
+    const camera = new THREE.PerspectiveCamera(45, 1, 0.01, 200);
+    camera.position.set(5.5, 3.6, 6.5);
+
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.08;
+    controls.autoRotate = false;          // (1) no auto-spin; user drives the camera
+    controls.target.set(0, 1.6, 0);
+
+    scene.add(new THREE.HemisphereLight(0xcfe8ff, 0x2a2a26, 1.8));
+    const sun = new THREE.DirectionalLight(0xffffff, 2.6);
+    sun.position.set(4, 9, 5);
+    sun.castShadow = true;
+    sun.shadow.mapSize.set(512, 512);
+    scene.add(sun);
+
+    const floor = new THREE.Mesh(
+      new THREE.BoxGeometry(40, 0.5, 40),
+      new THREE.MeshStandardMaterial({ color: 0x3c423d, roughness: 0.85 })
+    );
+    floor.position.y = -0.25;
+    floor.receiveShadow = true;
+    scene.add(floor);
+    scene.add(new THREE.GridHelper(40, 40, 0x55605a, 0x2c322e));
+
+    // ── temporary robot model (single base link STL) ────────────────
+    // robotPivot: pose animation (heading yaw + trot bob).
+    //   └─ robot: URDF Z-up -> three Y-up fix, lifted to float above floor.
+    // TODO(rig): swap the single mesh for the full armature (base + 4 legs ×
+    // 2 links + camera) once the URDF joints are wired.
+    const robotPivot = new THREE.Group();
+    scene.add(robotPivot);
+    const robot = new THREE.Group();
+    robot.rotation.x = -Math.PI / 2;
+    robotPivot.add(robot);
+
+    const FLOAT_GAP = 1.4;                 // (2) clear gap so the model sits above the floor
+    let restY = FLOAT_GAP;
+
+    const loader = new STLLoader();
+    loader.load('/static/base_link.STL', (geometry) => {
+      geometry.computeVertexNormals();
+      geometry.center();
+      geometry.computeBoundingBox();
+      const size = new THREE.Vector3();
+      geometry.boundingBox.getSize(size);
+      const scale = 3.2 / Math.max(size.x, size.y, size.z, 1e-6);
+
+      const mesh = new THREE.Mesh(
+        geometry,
+        new THREE.MeshStandardMaterial({ color: 0x383838, metalness: 0.15, roughness: 0.55 })
+      );
+      mesh.scale.setScalar(scale);
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      robot.add(mesh);
+
+      // (2) Centre over the origin and lift the whole model above the floor.
+      const box = new THREE.Box3().setFromObject(robot);
+      const bSize = box.getSize(new THREE.Vector3());
+      const bCenter = box.getCenter(new THREE.Vector3());
+      robot.position.x -= bCenter.x;
+      robot.position.z -= bCenter.z;
+      robot.position.y += FLOAT_GAP - box.min.y;
+      restY = robotPivot.position.y;
+      const focusY = FLOAT_GAP + bSize.y / 2;
+      controls.target.set(0, focusY, 0);
+      camera.position.set(5.5, focusY + 2.0, 6.5);
+      controls.update();
+    }, undefined, (err) => console.error('STL load failed', err));
+
+    function resize() {
+      const w = window.innerWidth, h = window.innerHeight;
+      renderer.setSize(w, h, false);
+      camera.aspect = w / h;
+      camera.updateProjectionMatrix();
+    }
+    window.addEventListener('resize', resize);
+    resize();
+
+    // ── serialised time-series overlay (monospace) ──────────────────
+    const streamEl = document.getElementById('stream');
+    const dotEl = document.getElementById('dot');
+    const copyBtn = document.getElementById('copy');
+    const speechEl = document.getElementById('speech');
+    const speechLabelEl = document.getElementById('speech-label');
+    const speechTextEl = document.getElementById('speech-text');
+    const OBSERVATION_TTL_S = 15;   // bubble retires ~15s after the last observation
+    const HISTORY = 16;
+    const rows = [];
+    let lastFrameMs = 0;
+    let latestFrame = null;
+    let copyFlashUntil = 0;
+
+    const pad = (v, n) => String(v).padEnd(n).slice(0, n);
+    const padN = (v, n) => String(v).padStart(n).slice(-n);
+    const num = (v, d = 2) => (Number.isFinite(Number(v)) ? Number(v).toFixed(d) : '-');
+
+    function clock(t) {
+      const dt = new Date((t || Date.now() / 1000) * 1000);
+      return dt.toTimeString().slice(0, 8) + '.' + padN(dt.getMilliseconds(), 3);
+    }
+
+    function serialiseRow(frame) {
+      const rs = frame.robot_state || {};
+      const cr = frame.command_result || {};
+      const lc = rs.last_command || {};
+      const p = lc.params || cr.params || {};
+      return [
+        padN(frame.seq, 6),
+        pad(clock(frame.server_time), 12),
+        pad(rs.status || '-', 9),
+        pad(cr.intent || lc.intent || '-', 6),
+        padN(num(p.vx), 6),
+        padN(num(p.yaw), 6),
+        pad(cr.status || '-', 9),
+      ].join(' ');
+    }
+
+    const HEADER =
+      pad('seq', 6) + ' ' + pad('time', 12) + ' ' + pad('state', 9) + ' ' +
+      pad('intent', 6) + ' ' + pad('vx', 6) + ' ' + pad('yaw', 6) + ' ' + pad('cmd', 9);
+
+    function render(frame) {
+      rows.push(serialiseRow(frame));
+      while (rows.length > HISTORY) rows.shift();
+
+      const latest = JSON.stringify(frame.robot_state || {}, null, 2);
+      streamEl.innerHTML =
+        '<span class="hdr">ROBOT STATE — live time series  (SSE /api/stream)</span>\n' +
+        '<span class="sep">' + '─'.repeat(HEADER.length) + '</span>\n' +
+        '<span class="hdr">' + HEADER + '</span>\n' +
+        rows.join('\n') +
+        '\n<span class="sep">' + '─'.repeat(HEADER.length) + '</span>\n' +
+        '<span class="hdr">latest robot_state.json</span>\n' +
+        latest;
+
+      if (performance.now() > copyFlashUntil) {
+        copyBtn.textContent = `COPY FRAME ${frame.seq}`;
+      }
+      renderSpeech();
+    }
+
+    // OBSERVE speech bubble: the robot "speaks" its scene observations from
+    // under the banner. hold=true (continuous OBSERVE toggle) pins the bubble
+    // until the console publishes a clear; otherwise old observations retire.
+    function renderSpeech() {
+      const obs = latestFrame && latestFrame.observation;
+      const show = obs && obs.text &&
+        (obs.hold || (Date.now() / 1000 - (obs.at || 0)) < OBSERVATION_TTL_S);
+      speechEl.hidden = !show;
+      if (show) {
+        speechLabelEl.textContent = obs.label || '';
+        speechTextEl.textContent = obs.text;
+      }
+    }
+
+    // (4) copy the current frame snapshot to the clipboard for debugging.
+    async function copyFrame() {
+      if (!latestFrame) return;
+      const text = JSON.stringify(latestFrame, null, 2);
+      try {
+        await navigator.clipboard.writeText(text);
+      } catch {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        document.body.appendChild(ta);
+        ta.select();
+        try { document.execCommand('copy'); } catch (e) { /* ignore */ }
+        document.body.removeChild(ta);
+      }
+      copyBtn.textContent = `[ COPIED FRAME ${latestFrame.seq} ]`;
+      copyFlashUntil = performance.now() + 1000;
+    }
+    copyBtn.addEventListener('click', copyFrame);
+
+    function connect() {
+      const es = new EventSource('/api/stream');
+      es.onmessage = (ev) => {
+        try {
+          const frame = JSON.parse(ev.data);
+          latestFrame = frame;
+          lastFrameMs = performance.now();
+          dotEl.classList.remove('stale');
+          render(frame);
+        } catch (e) { /* ignore malformed frame */ }
+      };
+      es.onerror = () => dotEl.classList.add('stale');
+    }
+    connect();
+
+    setInterval(() => {
+      if (performance.now() - lastFrameMs > 1500) dotEl.classList.add('stale');
+      renderSpeech();   // also retires an aged-out bubble between frames
+    }, 750);
+
+    // ── pose animation driven by robot_state pose, with command fallback ─────
+    let heading = 0;
+    let bob = 0;
+    let lastAnimMs = performance.now();
+
+    function commandedPose() {
+      const rs = (latestFrame && latestFrame.robot_state) || {};
+      const cr = (latestFrame && latestFrame.command_result) || {};
+      const lc = rs.last_command || {};
+      const pose = rs.pose || {};
+      const intent = cr.intent || lc.intent || 'STOP';
+      const p = lc.params || cr.params || {};
+      const hasPose = Number.isFinite(Number(pose.heading));
+      return {
+        active: intent === 'TROT' || intent === 'MOVE',
+        hasPose,
+        x: Number(pose.x) || 0,
+        heading: Number(pose.heading) || 0,
+        yaw: Number(p.yaw) || 0,
+      };
+    }
+
+    function animate() {
+      requestAnimationFrame(animate);
+      const now = performance.now();
+      const dt = Math.min(0.05, (now - lastAnimMs) / 1000);
+      lastAnimMs = now;
+
+      const pose = commandedPose();
+      heading = pose.hasPose ? pose.heading : heading + pose.yaw * dt * 1.6;
+      robotPivot.rotation.y = heading;
+      robotPivot.position.x = pose.hasPose ? pose.x * 2.0 : 0;
+      const targetBob = pose.active ? 0.18 + Math.sin(now * 0.012) * 0.16 : 0;
+      bob += (targetBob - bob) * 0.12;           // ease in/out of the trot bob
+      robotPivot.position.y = restY + bob;
+
+      controls.update();
+      renderer.render(scene, camera);
+    }
+    animate();
+  </script>
+</body>
+
+</html>

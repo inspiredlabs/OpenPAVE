@@ -1,0 +1,12 @@
+# pave_ui — PyQt6 operator console
+
+PyQt6==6.7.1
+PyQt6-WebEngine>=6.7.0,<6.8   # embedded visualiser; without it the console falls
+                              # back to a placeholder + "open in default browser"
+opencv-python>=4.10           # live camera preview (Continuity Camera via AVFoundation)
+numpy>=1.24                   # frame buffers
+
+# The default model (Qwen3-VL) needs mlx-vlm + the weights — see docs/qwen3-vl.md
+# and pave_mlx/requirements.txt. Without them the console still runs; the shim
+# returns the safe-default intent until a model is available.
+scikit-learn>=1.3        # SpatioTemporalProcessor (PCA/k-means) for the feature overlay

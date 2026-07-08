@@ -1,0 +1,70 @@
+{
+  "edges": [
+    {
+      "evidence": [
+        {
+          "line": 1,
+          "path": "__init__.py",
+          "text": "python entry"
+        }
+      ],
+      "from": "entry:./__init__.py",
+      "fromPort": "exec",
+      "id": "edge:entry:./__init__.py->module:__init__.py:launches",
+      "kind": "launches",
+      "to": "module:__init__.py",
+      "toPort": "process"
+    }
+  ],
+  "entryPoints": [
+    {
+      "id": "entry:./__init__.py",
+      "kind": "python",
+      "path": "./__init__.py"
+    }
+  ],
+  "generatedAt": "2026-07-03T05:59:19.635050+00:00",
+  "isPartial": false,
+  "nodes": [
+    {
+      "evidence": [],
+      "id": "entry:./__init__.py",
+      "inputs": [],
+      "kind": "entry_point",
+      "outputs": [
+        "exec"
+      ],
+      "path": "./__init__.py",
+      "position": {
+        "x": 60.0,
+        "y": 70.0
+      },
+      "subtitle": "python entry point",
+      "title": "__init__.py"
+    },
+    {
+      "evidence": [],
+      "id": "module:__init__.py",
+      "inputs": [
+        "process"
+      ],
+      "kind": "module",
+      "metrics": {
+        "classes": 0,
+        "functions": 0,
+        "lines": 12,
+        "localImports": 0
+      },
+      "outputs": [],
+      "path": "__init__.py",
+      "position": {
+        "x": 360.0,
+        "y": 70.0
+      },
+      "subtitle": "orchestration module",
+      "title": "__init__.py"
+    }
+  ],
+  "root": "/Users/scottphillips/Documents/GitHub/openpave/pave_mlx",
+  "schemaVersion": 1
+}

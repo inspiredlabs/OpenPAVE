@@ -45,6 +45,7 @@ Notes
 import json
 import os
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -62,12 +63,24 @@ from control_daemon.adapters import create_robot_adapter
 from control_daemon.feedback import atomic_write_json, command_result, robot_state
 
 INTENT_PATH = os.environ.get("INTENT_PATH", "/tmp/vla_intent.json")
-POLL_SEC = float(os.environ.get("POLL_SEC", "0.2"))
+# Intent-file poll cadence. 50ms (was 200ms) so a posted intent is picked up and
+# executed near-instantly — localhost file stat is cheap; this is pure pickup
+# latency between intent_ingress writing and the daemon acting on it.
+POLL_SEC = float(os.environ.get("POLL_SEC", "0.05"))
 COMMAND_RESULT_PATH = os.environ.get("COMMAND_RESULT_PATH", "/tmp/vla_command_result.json")
 ROBOT_STATE_PATH = os.environ.get("ROBOT_STATE_PATH", "/tmp/vla_robot_state.json")
+# Occasional on purpose: this heartbeat's only job is to keep the ROBOT STATE
+# live time-series panel showing *something* while nothing real is happening —
+# not to generate a steady stream of data. 30s is "very occasionally during
+# development"; every real command still writes robot_state immediately on its
+# own (see execute_intent), so this interval never affects actual responsiveness.
+ROBOT_HEARTBEAT_SEC = float(os.environ.get("ROBOT_HEARTBEAT_SEC", "30.0"))
 PROCESS_EXISTING_INTENT_ON_START = os.environ.get(
     "PROCESS_EXISTING_INTENT_ON_START", "0"
 ).lower() in {"1", "true", "yes"}
+_STATE_LOCK = threading.Lock()
+_CURRENT_ROBOT_STATUS = "starting"
+_CURRENT_LAST_COMMAND = None
 
 def load_intent():
     try:
@@ -89,15 +102,50 @@ def write_command_feedback(result: dict):
         f"intent={result.get('intent')} request_id={result.get('request_id')}"
     )
 
-def write_robot_state(status: str, adapter_name: str, last_command: dict | None = None):
-    atomic_write_json(
-        ROBOT_STATE_PATH,
-        robot_state(
-            adapter_name=adapter_name,
-            status=status,
-            last_command=last_command,
-        ),
+def adapter_telemetry(adapter) -> dict:
+    getter = getattr(adapter, "get_state", None)
+    if callable(getter):
+        try:
+            state = getter()
+            if isinstance(state, dict):
+                return state
+        except Exception:
+            pass
+    return {}
+
+
+def write_robot_state(status: str, adapter, last_command: dict | None = None, heartbeat_seq: int | None = None):
+    global _CURRENT_LAST_COMMAND, _CURRENT_ROBOT_STATUS
+    telemetry = adapter_telemetry(adapter)
+    payload = robot_state(
+        adapter_name=adapter.name,
+        status=status,
+        last_command=last_command,
+        pose=telemetry.get("pose"),
+        joint_state=telemetry.get("joint_state"),
+        heartbeat_seq=heartbeat_seq,
     )
+    with _STATE_LOCK:
+        _CURRENT_ROBOT_STATUS = status
+        if last_command is not None:
+            _CURRENT_LAST_COMMAND = last_command
+        atomic_write_json(ROBOT_STATE_PATH, payload)
+
+
+def start_robot_heartbeat(adapter):
+    def loop():
+        seq = 0
+        while True:
+            time.sleep(ROBOT_HEARTBEAT_SEC)
+            seq += 1
+            with _STATE_LOCK:
+                status = _CURRENT_ROBOT_STATUS
+                last_command = _CURRENT_LAST_COMMAND
+            write_robot_state(status, adapter, last_command, heartbeat_seq=seq)
+
+    thread = threading.Thread(target=loop, name="robot-state-heartbeat", daemon=True)
+    thread.start()
+    return thread
 
 def execute_intent(normalized: dict, adapter):
     started_at = now_iso()
@@ -108,7 +156,7 @@ def execute_intent(normalized: dict, adapter):
         started_at=started_at,
     )
     write_command_feedback(executing)
-    write_robot_state("executing", adapter.name, executing)
+    write_robot_state("executing", adapter, executing)
 
     try:
         intent = normalized["intent"]
@@ -134,7 +182,7 @@ def execute_intent(normalized: dict, adapter):
             error=str(exc),
         )
         write_command_feedback(failed)
-        write_robot_state("error", adapter.name, failed)
+        write_robot_state("error", adapter, failed)
         return failed
 
     status = "completed" if adapter_result.success else "failed"
@@ -148,7 +196,7 @@ def execute_intent(normalized: dict, adapter):
         error=adapter_result.error,
     )
     write_command_feedback(result)
-    write_robot_state("idle" if adapter_result.success else "error", adapter.name, result)
+    write_robot_state("idle" if adapter_result.success else "error", adapter, result)
     return result
 
 def main():
@@ -158,8 +206,10 @@ def main():
     print(f"[daemon] ROBOT_ADAPTER={adapter.name}")
     print(f"[daemon] COMMAND_RESULT_PATH={COMMAND_RESULT_PATH}")
     print(f"[daemon] ROBOT_STATE_PATH={ROBOT_STATE_PATH}")
+    print(f"[daemon] ROBOT_HEARTBEAT_SEC={ROBOT_HEARTBEAT_SEC}")
     print(f"[daemon] PROCESS_EXISTING_INTENT_ON_START={PROCESS_EXISTING_INTENT_ON_START}")
-    write_robot_state("idle", adapter.name)
+    write_robot_state("idle", adapter)
+    start_robot_heartbeat(adapter)
 
     last_mtime = None if PROCESS_EXISTING_INTENT_ON_START else get_mtime(INTENT_PATH)
     if last_mtime is not None:
@@ -192,7 +242,7 @@ def main():
                     error=str(exc),
                 )
                 write_command_feedback(rejected)
-                write_robot_state("idle", adapter.name, rejected)
+                write_robot_state("idle", adapter, rejected)
                 time.sleep(POLL_SEC)
                 continue
 
@@ -209,14 +259,14 @@ def main():
                 status="received",
             )
             write_command_feedback(received)
-            write_robot_state("received", adapter.name, received)
+            write_robot_state("received", adapter, received)
             accepted = command_result(
                 intent=normalized,
                 adapter_name=adapter.name,
                 status="accepted",
             )
             write_command_feedback(accepted)
-            write_robot_state("accepted", adapter.name, accepted)
+            write_robot_state("accepted", adapter, accepted)
             execute_intent(normalized, adapter)
 
         time.sleep(POLL_SEC)

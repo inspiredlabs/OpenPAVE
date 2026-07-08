@@ -1,0 +1,23 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "visualiser",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": [
+        "-c",
+        "cd /Users/scottphillips/Documents/GitHub/openpave/visualiser && exec /Users/scottphillips/.nvm/versions/node/v22.17.1/bin/node node_modules/vite/bin/vite.js dev --host 0.0.0.0 --port 888"
+      ],
+      "port": 888
+    },
+    {
+      "name": "visualiser-preview",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": [
+        "-c",
+        "cd /Users/scottphillips/Documents/GitHub/openpave/visualiser && exec /Users/scottphillips/.nvm/versions/node/v22.17.1/bin/node node_modules/vite/bin/vite.js dev --port 8888"
+      ],
+      "port": 8888
+    }
+  ]
+}

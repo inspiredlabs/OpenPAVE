@@ -38,12 +38,22 @@ class FeedbackTests(unittest.TestCase):
     def test_robot_state_shape(self):
         last_command = {"status": "completed", "intent": "STOP"}
 
-        state = robot_state(adapter_name="mock", status="idle", last_command=last_command)
+        state = robot_state(
+            adapter_name="mock",
+            status="idle",
+            last_command=last_command,
+            pose={"x": 1.0, "y": 0.0, "heading": 0.5},
+            joint_state={"lf": 0.1},
+            heartbeat_seq=7,
+        )
 
         self.assertEqual(state["schema_version"], "0.1")
         self.assertEqual(state["adapter"], "mock")
         self.assertEqual(state["status"], "idle")
         self.assertEqual(state["last_command"], last_command)
+        self.assertEqual(state["pose"], {"x": 1.0, "y": 0.0, "heading": 0.5})
+        self.assertEqual(state["joint_state"], {"lf": 0.1})
+        self.assertEqual(state["heartbeat_seq"], 7)
 
     def test_atomic_write_json(self):
         with tempfile.TemporaryDirectory() as tempdir:

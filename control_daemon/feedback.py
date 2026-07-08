@@ -56,11 +56,19 @@ def robot_state(
     adapter_name: str,
     status: str,
     last_command: dict[str, Any] | None = None,
+    pose: dict[str, Any] | None = None,
+    joint_state: dict[str, Any] | None = None,
+    heartbeat_seq: int | None = None,
 ) -> dict[str, Any]:
-    return {
+    state = {
         "schema_version": "0.1",
         "adapter": adapter_name,
         "status": status,
         "updated_at": now_iso(),
         "last_command": last_command,
+        "pose": pose or {"x": 0.0, "y": 0.0, "heading": 0.0},
+        "joint_state": joint_state or {},
     }
+    if heartbeat_seq is not None:
+        state["heartbeat_seq"] = heartbeat_seq
+    return state

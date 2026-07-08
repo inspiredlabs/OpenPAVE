@@ -103,14 +103,42 @@ class RobotAdapterTests(unittest.TestCase):
         self.assertEqual(result.steps[-1]["return_code"], 9)
         self.assertEqual(result.error, "one or more adapter steps failed")
 
-    def test_mock_adapter_returns_success_result(self):
-        adapter = MockAdapter()
+    def test_mock_adapter_stop_matches_puppypi_step_shape(self):
+        adapter = MockAdapter(fast=True)
 
         with contextlib.redirect_stdout(io.StringIO()):
             result = adapter.stop()
 
         self.assertTrue(result.success)
-        self.assertEqual(result.steps, [{"name": "mock_stop", "return_code": 0}])
+        self.assertEqual(
+            [step["name"] for step in result.steps],
+            ["set_mark_time:false", "set_running:false", "go_home"],
+        )
+        self.assertEqual([step["return_code"] for step in result.steps], [0, 0, 0])
+
+    def test_mock_adapter_move_matches_puppypi_step_shape(self):
+        adapter = MockAdapter(fast=True)
+
+        with contextlib.redirect_stdout(io.StringIO()):
+            result = adapter.move(vx=0.1, yaw=0.6, duration_ms=500)
+
+        self.assertTrue(result.success)
+        self.assertEqual(
+            [step["name"] for step in result.steps],
+            ["go_home", "set_mark_time:false", "set_running:true", "velocity_move"],
+        )
+        self.assertGreater(adapter.get_state()["pose"]["x"], 0)
+        self.assertGreater(adapter.get_state()["pose"]["heading"], 0)
+
+    def test_mock_adapter_fault_injection_fails_step(self):
+        adapter = MockAdapter(fail_step="velocity_move", fast=True)
+
+        with contextlib.redirect_stdout(io.StringIO()):
+            result = adapter.move(vx=0.0, yaw=0.6, duration_ms=600)
+
+        self.assertFalse(result.success)
+        self.assertEqual(result.steps[-1], {"name": "velocity_move", "return_code": 9})
+        self.assertEqual(result.error, "one or more adapter steps failed")
 
 
 if __name__ == "__main__":

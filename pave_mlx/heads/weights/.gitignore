@@ -1,0 +1,3 @@
+# trained head weights are build artifacts, not source
+*.npz
+*.safetensors
