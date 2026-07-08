@@ -18,6 +18,9 @@ ui/live-vlm-webui/.venv/
 AGENT/
 .svelte-kit
 node_modules
+.wire
+.claude
+.vscode
 
 .SUPPORT/
 /SUPPORT/
