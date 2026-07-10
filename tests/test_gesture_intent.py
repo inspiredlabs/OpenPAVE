@@ -48,27 +48,58 @@ class GestureSynonymTests(unittest.TestCase):
 class PromptRoutingTests(unittest.TestCase):
     def test_fourier_gets_gesture_name_prompt(self):
         # strict templates are parroted by this model; it must get the bare question
-        self.assertEqual(prompt_for_model("Fourier Qwen2-VL 2B (mradermacher)"), ROBOT_PROMPT_GESTURE_NAME)
+        self.assertEqual(prompt_for_model("Fourier-Qwen2-VL-2B-0.67"), ROBOT_PROMPT_GESTURE_NAME)
 
     def test_qwen_models_keep_strict_prompt(self):
-        self.assertEqual(prompt_for_model("Qwen3-VL"), ROBOT_PROMPT_QWEN)
-        self.assertEqual(prompt_for_model("Qwen3.5 2B (Rishu11277)"), ROBOT_PROMPT_QWEN)
+        self.assertEqual(prompt_for_model("Qwen3-VL-4B-Instruct-3bit"), ROBOT_PROMPT_QWEN)
+
+    def test_qwen35_gets_pointing_flag_prompt(self):
+        from pave_ui.perception import ROBOT_PROMPT_QWEN35
+
+        self.assertEqual(prompt_for_model("Qwen3.5-2B"), ROBOT_PROMPT_QWEN35)
+        self.assertIn("pointing hand", ROBOT_PROMPT_QWEN35)
 
     def test_gemma_keeps_default_prompt(self):
-        self.assertEqual(prompt_for_model("Gemma 4 E4B"), ROBOT_PROMPT)
+        self.assertEqual(prompt_for_model("gemma-4-E4B-it-MLX-4bit"), ROBOT_PROMPT)
 
 
 class PointingFollowUpTests(unittest.TestCase):
-    def test_directionless_pointing_triggers_follow_up(self):
+    def test_pointing_mentions_trigger_follow_up(self):
         self.assertTrue(pointing_needs_direction("Pointing"))
         self.assertTrue(pointing_needs_direction("pointing with index finger"))
+        # inline directions do NOT suppress it — the focused follow-up is the
+        # measured-reliable source and overrides the inline guess
+        self.assertTrue(pointing_needs_direction("Pointing left"))
+        self.assertTrue(pointing_needs_direction("INTENT: RIGHT\nFEATURE: pointing hand top-left"))
+        # grid-cell names must not masquerade as directions
+        self.assertTrue(pointing_needs_direction("INTENT: STOP\nFEATURE: pointing hand top-right"))
 
-    def test_direction_or_no_pointing_skips_follow_up(self):
-        self.assertFalse(pointing_needs_direction("Pointing left"))
-        self.assertFalse(pointing_needs_direction("point-right"))
+    def test_vertical_or_no_pointing_skips_follow_up(self):
         self.assertFalse(pointing_needs_direction("Pointing up"))
+        self.assertFalse(pointing_needs_direction("pointing at the camera"))
         self.assertFalse(pointing_needs_direction("INTENT: LEFT\nFEATURE: hand center"))
         self.assertFalse(pointing_needs_direction("Thumbs up"))
+
+    def test_follow_up_direction_overrides_inline_guess(self):
+        # Qwen3.5 measured: inline direction ~50% right, follow-up 4/4 — the
+        # follow-up answer must win even when the first reply guessed a side
+        class FakeEngine:
+            def __init__(self):
+                self.calls = []
+
+            def generate(self, img, prompt, max_tokens=12):
+                self.calls.append(prompt)
+                if prompt == POINTING_DIRECTION_PROMPT:
+                    return "LEFT"
+                return "INTENT: RIGHT\nFEATURE: pointing hand top-left"
+
+        engine = FakeEngine()
+        handle = EngineHandle(name="Qwen3.5-2B", engine=engine,
+                              kind="vlm", processor=None, img_size=448)
+        result = infer(handle, np.zeros((8, 8, 3), dtype=np.uint8))
+
+        self.assertEqual(result.intent, "LEFT")
+        self.assertEqual(len(engine.calls), 2)
 
     def test_infer_asks_direction_once_and_maps_it(self):
         class FakeEngine:
@@ -80,7 +111,7 @@ class PointingFollowUpTests(unittest.TestCase):
                 return "LEFT" if prompt == POINTING_DIRECTION_PROMPT else "Pointing"
 
         engine = FakeEngine()
-        handle = EngineHandle(name="Fourier Qwen2-VL 2B (mradermacher)", engine=engine,
+        handle = EngineHandle(name="Fourier-Qwen2-VL-2B-0.67", engine=engine,
                               kind="vlm", processor=None, img_size=448)
         result = infer(handle, np.zeros((8, 8, 3), dtype=np.uint8))
 
@@ -99,7 +130,7 @@ class PointingFollowUpTests(unittest.TestCase):
                 return "Thumbs up"
 
         engine = FakeEngine()
-        handle = EngineHandle(name="Fourier Qwen2-VL 2B (mradermacher)", engine=engine,
+        handle = EngineHandle(name="Fourier-Qwen2-VL-2B-0.67", engine=engine,
                               kind="vlm", processor=None, img_size=448)
         result = infer(handle, np.zeros((8, 8, 3), dtype=np.uint8))
 

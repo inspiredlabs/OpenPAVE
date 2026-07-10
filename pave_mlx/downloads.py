@@ -9,44 +9,49 @@ import struct
 import sys
 from pathlib import Path
 
-from pave_mlx.backends import backend_model_id
+from pave_mlx.backends import backend_model_id, checkpoint_label
 
-VLM_MODELS = {
-    "Qwen3-VL": "qwen",
-    "Qwen3-VL 2B": "qwen_2b",
-    "Qwen3.5 2B (Rishu11277)": "rishu_qwen35_2b",
-    "Fourier Qwen2-VL 2B (mradermacher)": "fourier_qwen2vl_2b",
-    "Gemma 4 E4B": "gemma",
+# Preflight titles are DERIVED from each backend's checkpoint id (basename) so
+# the CLI line, the dropdown, and the HF cache dirs on disk always agree.
+_PREFLIGHT_SIZE_BY_KEY = {
+    "qwen": 2.5,
+    "qwen_2b": 1.78,
+    "qwen_8b": 5.4,
+    "qwen35_2b": 4.5,
+    "fourier_qwen2vl_2b": 4.42,
+    "gemma": 6.83,
 }
-MODEL_SIZE_GB = {
-    "Qwen3-VL": 2.5,
-    "Qwen3-VL 2B": 1.57,
-    "Qwen3.5 2B (Rishu11277)": 3.76,
-    "Fourier Qwen2-VL 2B (mradermacher)": 4.42,
-    "Gemma 4 E4B": 6.83,
-}
-MODEL_CARD_NOTES = {
-    "Qwen3-VL 2B": {
-        "precision": "3-bit MLX",
-        "reported_size": "1.57 GB",
+VLM_MODELS = {checkpoint_label(key): key for key in _PREFLIGHT_SIZE_BY_KEY}
+MODEL_SIZE_GB = {checkpoint_label(key): size for key, size in _PREFLIGHT_SIZE_BY_KEY.items()}
+_MODEL_CARD_NOTES_BY_KEY = {
+    "qwen_2b": {
+        "precision": "4-bit MLX (3-bit collapses to token repetition on this 2B)",
+        "reported_size": "1.78 GB",
         "source": "Hugging Face model card",
     },
-    "Qwen3.5 2B (Rishu11277)": {
-        "precision": "fp16 MLX",
-        "reported_size": "3.76 GB",
+    "qwen_8b": {
+        "precision": "4-bit MLX",
+        "reported_size": "5.4 GB",
+        "source": "LM Studio model card",
+    },
+    "qwen35_2b": {
+        "precision": "bf16 safetensors (quantized MLX exports of this arch are broken; "
+                     "the Rishu11277 mlx-lm export has no vision tower)",
+        "reported_size": "4.5 GB",
         "source": "Hugging Face model card",
     },
-    "Fourier Qwen2-VL 2B (mradermacher)": {
+    "fourier_qwen2vl_2b": {
         "precision": "bf16 safetensors (GGUF quants unusable on MLX; serving the source repo)",
         "reported_size": "4.42 GB",
         "source": "Hugging Face model card",
     },
-    "Gemma 4 E4B": {
+    "gemma": {
         "precision": "4-bit MLX",
         "reported_size": "6.83 GB",
         "source": "LM Studio model card",
-    }
+    },
 }
+MODEL_CARD_NOTES = {checkpoint_label(key): notes for key, notes in _MODEL_CARD_NOTES_BY_KEY.items()}
 WEIGHT_EXTENSIONS = (".safetensors", ".npz", ".bin")
 RUNTIME_EXTENSIONS = (".json", ".jinja", ".txt", ".safetensors", ".npz", ".bin")
 
@@ -226,7 +231,7 @@ def loader_compat_report(name: str) -> dict[str, object]:
         "mlx_format": mlx_format,
         "shared_kv_extra_count": len(shared_kv),
         "shared_kv_extra_examples": shared_kv[:6],
-        "openpave_filter": name == "Gemma 4 E4B" and bool(shared_kv),
+        "openpave_filter": VLM_MODELS.get(name) == "gemma" and bool(shared_kv),
     }
 
 

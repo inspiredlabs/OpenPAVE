@@ -40,14 +40,22 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 ENGINE_MODELS = {"DINOv3", "V-JEPA 2.1", "LingBot-Map"}
-VLM_MODELS = {
-    "Qwen3-VL": "qwen",
-    "Qwen3-VL 2B": "qwen_2b",
-    "Qwen3.5 2B (Rishu11277)": "rishu_qwen35_2b",
-    "Fourier Qwen2-VL 2B (mradermacher)": "fourier_qwen2vl_2b",
-    "Gemma 4 E2B": "gemma_e2b",
-    "Gemma 4 E4B": "gemma",
+# VLM titles are DERIVED from each backend's checkpoint id (basename), so the
+# dropdown, the CLI preflight, and the HF cache dirs on disk always agree —
+# "Qwen3-VL-4B-Instruct-3bit", never a hand-written alias that can drift.
+# Approximate download sizes (GB) are keyed by backend, label maps derived.
+_VLM_SIZE_BY_KEY = {
+    "qwen": 2.5,
+    "qwen_2b": 1.78,
+    "qwen_8b": 5.4,
+    "qwen35_2b": 4.5,
+    "fourier_qwen2vl_2b": 4.42,
+    "gemma_e2b": 4.3,
+    "gemma": 6.83,
 }
+from pave_mlx.backends import checkpoint_label as _checkpoint_label  # noqa: E402
+
+VLM_MODELS = {_checkpoint_label(key): key for key in _VLM_SIZE_BY_KEY}
 DEFAULT_FEATURE = os.environ.get("PAVE_FEATURE", "pca_rgb")
 # Live VLM tuning (see infer()). These do NOT make Gemma sub-second — its cost is
 # prefill of ~280 image tokens through an ~8B model (~1.6s), a hard floor — but
@@ -99,14 +107,7 @@ def resize_vlm_frame(img: np.ndarray, size: int) -> tuple[np.ndarray, str]:
 
 # Approximate download sizes (GB) for the multi-GB VLMs — used by the pre-flight
 # disk check so the GUI won't start a download that cannot fit.
-MODEL_SIZE_GB = {
-    "Qwen3-VL": 2.5,
-    "Qwen3-VL 2B": 1.57,
-    "Qwen3.5 2B (Rishu11277)": 3.76,
-    "Fourier Qwen2-VL 2B (mradermacher)": 4.42,
-    "Gemma 4 E2B": 4.3,
-    "Gemma 4 E4B": 6.83,
-}
+MODEL_SIZE_GB = {label: _VLM_SIZE_BY_KEY[key] for label, key in VLM_MODELS.items()}
 _DISK_MARGIN_GB = 0.5
 _WEIGHT_EXTENSIONS = (".safetensors", ".npz", ".bin")
 _RUNTIME_EXTENSIONS = (".json", ".jinja", ".txt", ".safetensors", ".npz", ".bin")
@@ -293,6 +294,20 @@ ROBOT_PROMPT_QWEN = os.environ.get(
     "a label THEN a cell. Gestures set INTENT: thumbs-up=TROT, open palm=STOP, "
     "fist=HOME, point-left=LEFT, point-right=RIGHT; no gesture -> STOP.",
 )
+# Qwen3.5-2B follows the strict template perfectly but never flags pointing on
+# its own (0/4 measured) — the extra rule makes it either set a direction or
+# emit a 'pointing hand' FEATURE, and EITHER mention triggers the direction
+# follow-up in infer(), whose focused answer (4/4 measured) overrides the
+# unreliable inline guess (~50%). Non-pointing gestures went 8/8 with this
+# prompt vs 6/8 without — the emphasis line sharpens the whole gesture read.
+ROBOT_PROMPT_QWEN35 = os.environ.get(
+    "PAVE_ROBOT_PROMPT_QWEN35",
+    ROBOT_PROMPT_QWEN + (
+        "\nIf a finger points toward a side of the picture, INTENT MUST be LEFT or "
+        "RIGHT (the side the finger points toward), and one FEATURE label must be "
+        "'pointing hand'."
+    ),
+)
 ROBOT_PROMPT_FAST_INTENT = os.environ.get(
     "PAVE_ROBOT_PROMPT_FAST_INTENT",
     "Reply with exactly one word and nothing else: STOP, TROT, HOME, LEFT, or RIGHT. "
@@ -319,11 +334,19 @@ POINTING_DIRECTION_PROMPT = os.environ.get(
 
 
 def pointing_needs_direction(text: str) -> bool:
-    """True when the model saw pointing but did not say which way."""
+    """True when the model saw sideways pointing — run the direction follow-up.
+
+    The focused LEFT-or-RIGHT question measures far more reliable than any
+    inline direction (Qwen3.5: follow-up 4/4 vs inline ~50%), so an inline
+    LEFT/RIGHT does NOT suppress the follow-up — it gets overridden. Grid-cell
+    names (top-right, middle-left, ...) are stripped first so a FEATURE line
+    like "pointing hand top-right" can't masquerade as a direction. Vertical
+    or at-camera pointing is not a turn command and skips the follow-up."""
     up = (text or "").upper()
     if "POINT" not in up:
         return False
-    return not any(w in up for w in ("LEFT", "RIGHT", "UP", "DOWN", "FORWARD", "CAMERA"))
+    cleaned = re.sub(r"\b(TOP|MIDDLE|BOTTOM)-(LEFT|RIGHT|CENTER)\b", " ", up)
+    return not re.search(r"\b(UP|UPWARD|DOWN|DOWNWARD|FORWARD|CAMERA)\b", cleaned)
 
 
 def prompt_for_model(model_name: str) -> str:
@@ -340,6 +363,8 @@ def prompt_for_model(model_name: str) -> str:
         # draws the coarse "vision center" marker so the overlay stays visibly
         # alive.
         return ROBOT_PROMPT_GESTURE_NAME
+    if "qwen3.5" in name or "qwen35" in name:
+        return ROBOT_PROMPT_QWEN35  # strict template + pointing flag (see above)
     return ROBOT_PROMPT_QWEN if "qwen" in name else ROBOT_PROMPT
 
 
@@ -1054,16 +1079,21 @@ def infer(handle: EngineHandle, frames_bgr: np.ndarray, prompt: str | None = Non
             camera_prompt = prompt_for_model(handle.name)
             t_generate = time.perf_counter()
             text = handle.engine.generate(img, prompt or camera_prompt, max_tokens=vlm_max_tokens(prompt))
+            forced_intent = None
             if prompt is None and pointing_needs_direction(text):
-                # Two-stage pointing: small models (Fourier 2B, measured) say
-                # "Pointing" reliably but never volunteer the direction in one
-                # shot — and demanding it up front biases every reply to
-                # Left/Right. One follow-up request, only on pointing frames.
+                # Two-stage pointing: small models flag pointing far more
+                # reliably than they name its direction (Fourier says a bare
+                # "Pointing"; Qwen3.5's inline guess is ~50% while the focused
+                # question below is 4/4 measured) — so one follow-up request on
+                # pointing frames only, and its answer OVERRIDES any inline
+                # direction.
                 direction = handle.engine.generate(img, POINTING_DIRECTION_PROMPT, max_tokens=4)
                 text = f"{text} {direction}"
+                d = (direction or "").upper()
+                forced_intent = "LEFT" if "LEFT" in d else ("RIGHT" if "RIGHT" in d else None)
             generate_ms = (time.perf_counter() - t_generate) * 1000.0
             intent_text, feature_lines = parse_model_response(text)
-            intent_ok = has_intent_token(intent_text)
+            intent_ok = bool(forced_intent) or has_intent_token(intent_text)
             dims = "VLM image+prompt ok"
             if os.environ.get("PAVE_VLM_TIMINGS", "0") == "1":
                 pieces = [f"resize[{resize_backend}]={resize_ms:.1f}ms", f"generate={generate_ms:.1f}ms"]
@@ -1093,7 +1123,7 @@ def infer(handle: EngineHandle, frames_bgr: np.ndarray, prompt: str | None = Non
                     raw,
                     features,
                 )
-            return InferResult(None, clamp_to_intent(intent_text), dims, True, raw, features)
+            return InferResult(None, forced_intent or clamp_to_intent(intent_text), dims, True, raw, features)
         except Exception as exc:
             msg = f"{type(exc).__name__}: {exc}"
             if len(msg) > 120:

@@ -108,13 +108,19 @@ def _package_version(package: str) -> str:
 
 
 def _patch_gemma4_shared_kv_sanitize() -> bool:
-    """Make mlx-vlm's Gemma 4 loader drop unused shared-KV checkpoint tensors.
+    """Make mlx-vlm's Gemma 4 loader accept lmstudio-community checkpoints.
 
-    Some Gemma 4 MLX checkpoints carry k/v projection and norm tensors for layers
-    that the small shared-KV architecture intentionally does not instantiate. The
-    language model sanitizer already knows how to drop them. Some mlx-vlm releases
-    skip sanitizer application for safetensors marked as native MLX format, causing
-    "parameters not in model" on otherwise complete caches.
+    Two checkpoint/loader gaps, both fixed at load time:
+    1. Shared-KV extras — some Gemma 4 MLX checkpoints carry k/v projection and
+       norm tensors for layers the small shared-KV architecture intentionally
+       does not instantiate. The language model sanitizer knows how to drop
+       them, but some mlx-vlm releases skip it for native-MLX safetensors,
+       causing "parameters not in model" on otherwise complete caches.
+    2. Audio-tower conv layout — mlx-vlm 0.6.4 expects audio conv weights with
+       channels-last kernel axes (e.g. (128, 3, 3, 1)) while these checkpoints
+       store the last two axes swapped ((128, 3, 1, 3)), failing the load with
+       a shape error even though OpenPAVE never feeds audio. Transpose any
+       audio weight whose swap exactly matches the instantiated shape.
     """
     try:
         from mlx_vlm.models.gemma4 import gemma4
@@ -132,16 +138,31 @@ def _patch_gemma4_shared_kv_sanitize() -> bool:
     if not callable(original_sanitize) or not callable(original_load_weights):
         return False
 
-    def filter_shared_kv(self, weights):
-        language_model = getattr(self, "language_model", None)
-        language_sanitize = getattr(language_model, "sanitize", None)
-        if not callable(language_sanitize):
-            return weights
+    def fix_audio_conv_layout(self, weight_dict):
+        try:
+            import mlx.core as mx
+            from mlx.utils import tree_flatten
 
+            expected = {k: v.shape for k, v in tree_flatten(self.parameters())
+                        if "audio" in k and getattr(v, "ndim", 0) >= 3}
+        except Exception:
+            return weight_dict
+        for key, want in expected.items():
+            have = weight_dict.get(key)
+            if have is not None and have.ndim == len(want) and tuple(have.shape) != tuple(want) \
+                    and tuple(mx.swapaxes(have, -2, -1).shape) == tuple(want):
+                weight_dict[key] = mx.swapaxes(have, -2, -1)
+        return weight_dict
+
+    def filter_shared_kv(self, weights):
         as_items = not isinstance(weights, dict)
         weight_dict = dict(weights) if as_items else weights
-        filtered = language_sanitize(weight_dict)
-        return list(filtered.items()) if as_items else filtered
+        language_model = getattr(self, "language_model", None)
+        language_sanitize = getattr(language_model, "sanitize", None)
+        if callable(language_sanitize):
+            weight_dict = language_sanitize(weight_dict)
+        weight_dict = fix_audio_conv_layout(self, weight_dict)
+        return list(weight_dict.items()) if as_items else weight_dict
 
     def sanitize_with_shared_kv_filter(self, weights):
         sanitized = original_sanitize(self, weights)
@@ -154,6 +175,49 @@ def _patch_gemma4_shared_kv_sanitize() -> bool:
     model_cls.load_weights = load_weights_with_shared_kv_filter
     model_cls._openpave_shared_kv_sanitize = True
     return True
+
+def _patch_bpe_streaming_detokenizer_utf8() -> bool:
+    """Make mlx-vlm's BPE streaming detokenizer survive split UTF-8 sequences.
+
+    Qwen3.5's byte-level BPE can leave a partial multibyte character in the
+    detokenizer's unflushed buffer when the next token starts with a space.
+    mlx-vlm 0.6.4's add_token() flushes that buffer with a STRICT utf-8 decode
+    and crashes (UnicodeDecodeError) mid-stream — its own finalize() decodes
+    the same buffer with errors="ignore". Mirror finalize()'s recovery here.
+    Affects both serving tiers: vllm-mlx delegates to the same stream_generate.
+    """
+    try:
+        from mlx_vlm import tokenizer_utils
+    except Exception:
+        return False
+
+    cls = getattr(tokenizer_utils, "BPEStreamingDetokenizer", None)
+    if cls is None or not callable(getattr(cls, "add_token", None)):
+        return False
+    if getattr(cls, "_openpave_utf8_safe", False):
+        return True
+
+    original_add_token = cls.add_token
+    remove_space = getattr(tokenizer_utils, "_remove_space", lambda s: s.lstrip())
+
+    def add_token_utf8_safe(self, token, *args, **kwargs):
+        try:
+            return original_add_token(self, token, *args, **kwargs)
+        except UnicodeDecodeError:
+            # same flush add_token was attempting, with finalize()'s tolerance
+            current_text = bytearray(
+                self._byte_decoder[c] for c in self._unflushed
+            ).decode("utf-8", errors="ignore")
+            if self.text or not self.trim_space:
+                self.text += current_text
+            else:
+                self.text += remove_space(current_text)
+            self._unflushed = self.tokenmap[token]
+
+    cls.add_token = add_token_utf8_safe
+    cls._openpave_utf8_safe = True
+    return True
+
 
 # don't guess what the API looks like, it's all in here: https://huggingface.co/lmstudio-community/gemma-4-E4B-it-MLX-4bit
 def _summarize_vlm_load_error(model_name: str, exc: Exception, compat_notes: list[str]) -> str:
@@ -319,6 +383,8 @@ class MlxVlmBackend:
                 load_config = None
             if self.name == "gemma" and _patch_gemma4_shared_kv_sanitize():
                 self.compat_notes.append("Gemma 4 shared-KV load filter active")
+            if _patch_bpe_streaming_detokenizer_utf8():
+                self.compat_notes.append("utf-8-safe BPE streaming detokenizer")
             self._generate, self._apply = generate, apply_chat_template
             load_target = _local_hf_snapshot(self.model_id) or self.model_id
             if load_target != self.model_id:
@@ -457,9 +523,13 @@ class VllmMlxBackend(MlxVlmBackend):
     # Whether this model's VISION path is known-good under vllm-mlx. False pins the
     # model to the direct mlx-vlm path (see __init__). Gemma 4 sets this False.
     supports_vllm = True
-    # Human-readable label, matching the operator console dropdown — used in the
-    # timing trace so A/B runs across models can be told apart in the logs.
-    display_name = "default"
+
+    @property
+    def display_name(self) -> str:
+        """Checkpoint basename ("Qwen3-VL-4B-Instruct-3bit") — the one title
+        used by the dropdown, the preflight, and the timing trace, so A/B runs
+        in the logs match the HF cache directory names on disk."""
+        return str(getattr(self, "model_id", "default")).rstrip("/").split("/")[-1]
 
     def __init__(self) -> None:
         self.mode = "fallback"
@@ -479,12 +549,13 @@ class VllmMlxBackend(MlxVlmBackend):
         self._timings_enabled = _env_flag("PAVE_VLLM_MLX_TIMINGS", False)
         self._last_timings: dict[str, float] = {}
         self._frame_url_server: _FrameUrlServer | None = None
-        # Default to the fast vllm-mlx serving tier. Models whose vision path is
-        # broken under vllm-mlx (Gemma 4 — verified: garbage/500 on image input)
-        # set supports_vllm=False and are pinned to the direct mlx-vlm path so they
-        # never silently produce garbage. Qwen3-VL works on vllm-mlx (~0.3s/frame).
-        env_runtime = (os.environ.get("PAVE_VLM_BACKEND") or os.environ.get("PAVE_VLM_RUNTIME") or "vllm-mlx")
-        self._runtime = (env_runtime if self.supports_vllm else "mlx-vlm").strip().lower()
+        # Runtime resolution, most explicit first: the UI's Runtime selector
+        # (set_runtime_override), then PAVE_VLM_BACKEND/PAVE_VLM_RUNTIME, then
+        # the model's measured default. supports_vllm=False is that DEFAULT for
+        # models whose vision path misbehaves under vllm-mlx (Gemma 4: garbage
+        # on image input; Qwen3.5: reasoning-mode burns the token budget) — an
+        # explicit choice overrides it so both runtimes stay A/B-testable.
+        self._runtime = planned_runtime(self.name)
 
         if self._runtime in self._DIRECT_BACKEND_NAMES:
             MlxVlmBackend.__init__(self)
@@ -529,13 +600,26 @@ class VllmMlxBackend(MlxVlmBackend):
         if importlib.util.find_spec("vllm_mlx") is None:
             raise RuntimeError("Python package vllm_mlx is not installed")
 
+        # Local-dir model ids (env overrides pointing at mlx_vlm convert output)
+        # must be absolutized: vllm-mlx treats any string it can't stat as a HF
+        # repo id and fails with a misleading "Failed to download ./models/..."
+        model_arg = self.model_id
+        if model_arg.startswith((".", "/", "~")):
+            local = Path(model_arg).expanduser()
+            if not local.is_dir():
+                raise RuntimeError(
+                    f"local model path {model_arg} does not exist — run the "
+                    "mlx_vlm convert step first (see the backend's comment)"
+                )
+            model_arg = str(local.resolve())
+
         host = os.environ.get("PAVE_VLLM_MLX_HOST", "127.0.0.1")
         port = int(os.environ.get("PAVE_VLLM_MLX_PORT") or _find_free_port(host))
         low_latency = _env_flag("PAVE_VLLM_MLX_LOW_LATENCY", False)
         root = f"http://{host}:{port}"
         cmd = [
             sys.executable, "-m", "pave_mlx.vllm_server",
-            "serve", self.model_id,
+            "serve", model_arg,
             "--host", host,
             "--port", str(port),
             "--served-model-name", self._served_model,
@@ -877,55 +961,90 @@ class VllmMlxBackend(MlxVlmBackend):
             pass
 
 
+# ── VLM backends — one per HF cache dir, measured verdicts inline ──────────
+# Every entry names the exact ~/.cache/huggingface/hub directory it loads from
+# and what it measured on the 12-image HaGRID gesture set, so a disk audit can
+# be read straight off this file.
+
 class QwenVLMBackend(VllmMlxBackend):
-    # Qwen3-VL-4B (3-bit) — the fast, vllm-mlx-verified vision model: ~0.3s/frame
-    # warm, coherent INTENT + FEATURE output (Gemma 4's vision path is broken under
-    # vllm-mlx, so it is the wrong model for the serving tier). Native video pipeline.
+    # cache: models--mlx-community--Qwen3-VL-4B-Instruct-3bit (2.4 GB) — KEEP.
+    # The reference model: vllm-mlx-verified, ~0.9s/frame warm @448px, coherent
+    # INTENT + FEATURE output, best structured-reply quality of the Qwen3-VL
+    # quants. (Gemma 4's vision path is broken under vllm-mlx, so this is the
+    # serving tier's default.) Native video pipeline.
     name = "qwen"
-    display_name = "Qwen3-VL"
     model_id = os.environ.get("QWEN_VLM_MODEL", "mlx-community/Qwen3-VL-4B-Instruct-3bit")
 
 
 class Qwen2BVLMBackend(QwenVLMBackend):
-    # Qwen3-VL-2B (3-bit) — lighter A/B option for live camera latency tests.
+    # cache: models--mlx-community--Qwen3-VL-2B-Instruct-4bit (1.7 GB) — KEEP.
+    # Fastest tier measured: ~440ms/frame warm via vllm-mlx with clean
+    # INTENT/FEATURE structure, but weak gesture recognition (3/12) — a speed
+    # A/B option, not a gesture driver.
+    # cache: models--mlx-community--Qwen3-VL-2B-Instruct-3bit (1.5 GB) — DELETE.
+    # The old default; 3-bit collapses this 2B into token repetition
+    # ("INTENT: 1 1 1 1 ...", measured live) and is superseded by the 4-bit.
     name = "qwen_2b"
-    display_name = "Qwen3-VL 2B"
-    model_id = os.environ.get("QWEN_2B_VLM_MODEL", "mlx-community/Qwen3-VL-2B-Instruct-3bit")
+    model_id = os.environ.get("QWEN_2B_VLM_MODEL", "mlx-community/Qwen3-VL-2B-Instruct-4bit")
 
 
-class RishuQwen35VLMBackend(QwenVLMBackend):
-    # Rishu11277's Qwen3.5-2B MLX export (fp16, image-text-to-text) — A/B candidate
-    # against the 3-bit Qwen3-VL 2B. fp16 trades memory bandwidth for quality, so
-    # expect higher decode cost per token than the 3-bit quants at the same size.
-    name = "rishu_qwen35_2b"
-    display_name = "Qwen3.5 2B (Rishu11277)"
-    model_id = os.environ.get("RISHU_QWEN35_VLM_MODEL", "Rishu11277/Qwen3.5-2B-mlx-fp16")
+class Qwen8BVLMBackend(QwenVLMBackend):
+    # cache: models--lmstudio-community--Qwen3-VL-8B-Instruct-MLX-4bit (5.4 GB).
+    # Already on disk, so exposed as the quality-ceiling A/B option; same
+    # Qwen3-VL family as the verified 4B. Untested on the gesture set — expect
+    # roughly 2x the 4B's latency per frame.
+    name = "qwen_8b"
+    model_id = os.environ.get("QWEN_8B_VLM_MODEL", "lmstudio-community/Qwen3-VL-8B-Instruct-MLX-4bit")
+
+
+class Qwen35VLMBackend(QwenVLMBackend):
+    # cache: models--Qwen--Qwen3.5-2B (4.3 GB, official bf16) — KEEP; this is
+    # what the entry serves: ~670ms warm on direct mlx-vlm, real INTENT/FEATURE.
+    # cache: models--Rishu11277--Qwen3.5-2B-mlx-fp16 (3.5 GB) — DELETE. That
+    # export is the SAME language model re-serialized by mlx-lm (measured
+    # max|Δ| 3e-8 vs official; layernorms differ only by the +1 RMSNorm storage
+    # convention) with the entire vision tower stripped (0 vision weights) —
+    # nothing to A/B that this entry doesn't already serve, minus the eyes.
+    # Serve EXACTLY the official repo, all measured on mlx-vlm 0.6.4:
+    #   * NOT a local `mlx_vlm convert -q` — this hybrid (Gated DeltaNet)
+    #     architecture does not survive quantization: 4-bit AND 8-bit both emit
+    #     pure gibberish even on text-only prompts.
+    #   * NOT vllm-mlx — coherent there, but the chat template puts the model in
+    #     reasoning mode ("The user wants me to...") and it burns the whole
+    #     token budget before INTENT; direct mlx-vlm answers the strict format
+    #     in ~670ms warm, which is already the fast band. Hence supports_vllm
+    #     False, same treatment as Gemma 4.
+    name = "qwen35_2b"
+    supports_vllm = False
+    model_id = os.environ.get("QWEN35_VLM_MODEL", "Qwen/Qwen3.5-2B")
 
 
 class FourierQwen2VLBackend(QwenVLMBackend):
-    # mradermacher publishes Fourier-Qwen2-VL-2B only as GGUF (llama.cpp format),
-    # which MLX cannot load. Serve the safetensors source repo those quants were
-    # made from instead — identical weights, and mlx-vlm loads the qwen2_vl
-    # architecture natively. For a smaller/faster quantized variant, run
-    #   python -m mlx_vlm.convert --hf-path whyisverysmart/Fourier-Qwen2-VL-2B-0.67 -q
+    # cache: models--whyisverysmart--Fourier-Qwen2-VL-2B-0.67 (4.1 GB) — KEEP.
+    # Best gesture recognition measured: 10/12 with the gesture-name prompt +
+    # pointing follow-up, ~650-900ms/frame as the local 4-bit conversion
+    # (./models/fourier-qwen2vl-2b-4bit). No FEATURE overlay (parrots strict
+    # templates). mradermacher publishes this model only as GGUF (llama.cpp
+    # format), which MLX cannot load — this is the safetensors source repo the
+    # GGUF quants were made from: identical weights, native qwen2_vl support.
+    # Quantized variant: python -m mlx_vlm.convert --hf-path whyisverysmart/... -q
     # and point FOURIER_QWEN2VL_MODEL at the output directory.
     name = "fourier_qwen2vl_2b"
-    display_name = "Fourier Qwen2-VL 2B (mradermacher)"
     model_id = os.environ.get("FOURIER_QWEN2VL_MODEL", "whyisverysmart/Fourier-Qwen2-VL-2B-0.67")
 
 
 class GemmaVLMBackend(VllmMlxBackend):
+    # cache: models--lmstudio-community--gemma-4-E4B-it-MLX-4bit (6.4 GB).
     name = "gemma"
-    display_name = "Gemma 4 E4B"
     supports_vllm = False  # Gemma 4 vision is broken under vllm-mlx -> pin to direct mlx-vlm
     model_id = os.environ.get("GEMMA_VLM_MODEL", "lmstudio-community/gemma-4-E4B-it-MLX-4bit")
 
 
 class GemmaE2BVLMBackend(VllmMlxBackend):
+    # cache: models--lmstudio-community--gemma-4-E2B-it-MLX-4bit (4.1 GB).
     # Gemma 4 E2B — the lighter sibling of E4B. name is still "gemma" so the shared-KV
     # load filter (_patch_gemma4_shared_kv_sanitize) applies to both variants.
     name = "gemma"
-    display_name = "Gemma 4 E2B"
     supports_vllm = False  # Gemma 4 vision is broken under vllm-mlx -> pin to direct mlx-vlm
     model_id = os.environ.get("GEMMA_E2B_VLM_MODEL", "lmstudio-community/gemma-4-E2B-it-MLX-4bit")
 
@@ -1123,7 +1242,8 @@ _REGISTRY = {
     "lingbot": LingBotBackend,
     "qwen": QwenVLMBackend,
     "qwen_2b": Qwen2BVLMBackend,
-    "rishu_qwen35_2b": RishuQwen35VLMBackend,
+    "qwen_8b": Qwen8BVLMBackend,
+    "qwen35_2b": Qwen35VLMBackend,
     "fourier_qwen2vl_2b": FourierQwen2VLBackend,
     "gemma": GemmaVLMBackend,
     "gemma_e2b": GemmaE2BVLMBackend,
@@ -1144,5 +1264,41 @@ def backend_model_id(name: str) -> str:
     return getattr(cls, "model_id", name) if cls else name
 
 
-VLM_NAMES = {"qwen", "qwen_2b", "rishu_qwen35_2b", "fourier_qwen2vl_2b", "gemma", "gemma_e2b"}
+_RUNTIME_OVERRIDE = ""  # "", "vllm-mlx" or "mlx-vlm" — set by the UI Runtime selector
+
+
+def set_runtime_override(value: str | None) -> None:
+    """Explicitly choose the serving runtime for subsequent model loads.
+
+    "" / "auto" restores per-model defaults (supports_vllm). An explicit
+    "vllm-mlx" or "mlx-vlm" wins over the model's default so the two runtimes
+    can be speed-compared on any model — including ones whose default pins
+    them elsewhere."""
+    global _RUNTIME_OVERRIDE
+    value = (value or "").strip().lower()
+    _RUNTIME_OVERRIDE = "" if value == "auto" else value
+
+
+def planned_runtime(name: str) -> str:
+    """The runtime a backend will use if constructed now (override > env > default)."""
+    explicit = _RUNTIME_OVERRIDE or (
+        os.environ.get("PAVE_VLM_BACKEND") or os.environ.get("PAVE_VLM_RUNTIME") or ""
+    ).strip().lower()
+    if explicit:
+        return explicit
+    cls = _REGISTRY.get((name or "").strip().lower())
+    return "vllm-mlx" if getattr(cls, "supports_vllm", True) else "mlx-vlm"
+
+
+def checkpoint_label(name: str) -> str:
+    """Dropdown/preflight/trace title for a backend: the checkpoint's basename.
+
+    "Qwen3-VL-4B-Instruct-3bit", not a hand-written alias — so the UI title,
+    the CLI preflight line, and the HF cache directory always agree. Env
+    overrides flow through automatically (a local ./models/foo-4bit dir shows
+    as "foo-4bit")."""
+    return backend_model_id(name).rstrip("/").split("/")[-1]
+
+
+VLM_NAMES = {"qwen", "qwen_2b", "qwen_8b", "qwen35_2b", "fourier_qwen2vl_2b", "gemma", "gemma_e2b"}
 DETECTOR_NAMES = {"falcon"}  # structured detect/segment backends (not intent producers)

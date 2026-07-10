@@ -31,26 +31,36 @@ class VllmMlxBackendTests(unittest.TestCase):
         self.assertIn("vllm-mlx", VllmMlxBackend._SERVER_BACKEND_NAMES)
         self.assertIn("mlx-vlm", VllmMlxBackend._DIRECT_BACKEND_NAMES)
 
-    def test_qwen_2b_backend_uses_mlx_community_checkpoint(self):
+    def test_qwen_2b_backend_uses_4bit_checkpoint(self):
+        # 3-bit collapses this 2B into token repetition ("INTENT: 1 1 1 ...",
+        # measured live) — the default must be the coherent 4-bit quant
         from pave_mlx.backends import VLM_NAMES, backend_model_id
 
         self.assertIn("qwen_2b", VLM_NAMES)
-        self.assertEqual(backend_model_id("qwen_2b"), "mlx-community/Qwen3-VL-2B-Instruct-3bit")
+        self.assertEqual(backend_model_id("qwen_2b"), "mlx-community/Qwen3-VL-2B-Instruct-4bit")
+
+    def test_qwen_8b_backend_uses_lmstudio_checkpoint(self):
+        from pave_mlx.backends import VLM_NAMES, backend_model_id
+
+        self.assertIn("qwen_8b", VLM_NAMES)
+        self.assertEqual(backend_model_id("qwen_8b"), "lmstudio-community/Qwen3-VL-8B-Instruct-MLX-4bit")
 
     def test_display_names_match_dropdown_labels(self):
-        from pave_mlx.backends import _REGISTRY
+        # display_name is a property deriving the checkpoint basename from
+        # model_id — dropdown labels derive the same way, so they always agree
+        from pave_mlx.backends import backend_model_id
         from pave_ui.perception import VLM_MODELS
 
         for label, key in VLM_MODELS.items():
-            self.assertEqual(_REGISTRY[key].display_name, label)
+            self.assertEqual(backend_model_id(key).rstrip("/").split("/")[-1], label)
 
-    def test_timing_trace_includes_runtime_and_dropdown_model_name(self):
+    def test_timing_trace_includes_runtime_and_checkpoint_name(self):
         import contextlib
         import io
 
         backend = self._server_backend()
         backend._timings_enabled = True
-        backend.display_name = "Fourier Qwen2-VL 2B (mradermacher)"
+        backend.model_id = "whyisverysmart/Fourier-Qwen2-VL-2B-0.67"  # display_name derives from this
         backend._request_json = lambda *a, **k: {
             "choices": [{"message": {"content": "INTENT: STOP"}}]
         }
@@ -60,14 +70,42 @@ class VllmMlxBackendTests(unittest.TestCase):
             backend.generate(self._frame(), "INTENT contract", max_tokens=8)
 
         line = stream.getvalue()
-        self.assertIn("[pave_mlx] [ vllm-mlx ] [ Fourier Qwen2-VL 2B (mradermacher) ] timings", line)
+        self.assertIn("[pave_mlx] [ vllm-mlx ] [ Fourier-Qwen2-VL-2B-0.67 ] timings", line)
         self.assertIn("request_ms=", line)
 
-    def test_rishu_qwen35_backend_uses_mlx_fp16_checkpoint(self):
+    def test_qwen35_backend_uses_official_repo_not_textonly_export(self):
+        # the Rishu11277 mlx-lm export has NO vision tower (verified: 0 vision
+        # weights) — the backend must point at the official multimodal repo
         from pave_mlx.backends import VLM_NAMES, backend_model_id
 
-        self.assertIn("rishu_qwen35_2b", VLM_NAMES)
-        self.assertEqual(backend_model_id("rishu_qwen35_2b"), "Rishu11277/Qwen3.5-2B-mlx-fp16")
+        self.assertIn("qwen35_2b", VLM_NAMES)
+        self.assertEqual(backend_model_id("qwen35_2b"), "Qwen/Qwen3.5-2B")
+
+    def test_runtime_override_beats_per_model_default(self):
+        # supports_vllm=False is a measured DEFAULT, not a hard pin — an
+        # explicit override (UI Runtime selector) must win so both serving
+        # paths stay speed-testable on any model
+        from pave_mlx import backends
+
+        try:
+            self.assertEqual(backends.planned_runtime("gemma"), "mlx-vlm")     # default: pinned
+            self.assertEqual(backends.planned_runtime("qwen"), "vllm-mlx")     # default: server
+            backends.set_runtime_override("vllm-mlx")
+            self.assertEqual(backends.planned_runtime("gemma"), "vllm-mlx")    # override wins
+            backends.set_runtime_override("mlx-vlm")
+            self.assertEqual(backends.planned_runtime("qwen"), "mlx-vlm")      # both directions
+            backends.set_runtime_override("auto")
+            self.assertEqual(backends.planned_runtime("gemma"), "mlx-vlm")     # auto restores
+        finally:
+            backends.set_runtime_override("")
+
+    def test_qwen35_is_pinned_to_direct_mlx_vlm(self):
+        # under vllm-mlx the chat template puts Qwen3.5 into reasoning mode and
+        # it never reaches INTENT within the token budget (measured) — pin to
+        # the direct path like Gemma 4
+        from pave_mlx.backends import Qwen35VLMBackend
+
+        self.assertFalse(Qwen35VLMBackend.supports_vllm)
 
     def test_fourier_backend_serves_safetensors_source_not_gguf(self):
         # mradermacher's repo is GGUF-only, which MLX cannot load; the backend

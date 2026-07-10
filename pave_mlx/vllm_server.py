@@ -147,8 +147,11 @@ def _guard_prefix_cache(generator) -> bool:
 
 
 def apply_compat_patches() -> list[str]:
-    """Apply both patches; returns human-readable notes for logging."""
-    from pave_mlx.backends import _patch_gemma4_shared_kv_sanitize
+    """Apply all patches; returns human-readable notes for logging."""
+    from pave_mlx.backends import (
+        _patch_bpe_streaming_detokenizer_utf8,
+        _patch_gemma4_shared_kv_sanitize,
+    )
 
     notes = []
     if _patch_gemma4_shared_kv_sanitize():
@@ -157,6 +160,8 @@ def apply_compat_patches() -> list[str]:
         notes.append("KV prefix cache restricted to text-only requests")
     if _patch_vllm_stream_rebind():
         notes.append("mlx-vlm 0.6.x generation-stream rebind extended")
+    if _patch_bpe_streaming_detokenizer_utf8():
+        notes.append("utf-8-safe BPE streaming detokenizer (Qwen3.5)")
     return notes
 
 

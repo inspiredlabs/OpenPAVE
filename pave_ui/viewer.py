@@ -109,21 +109,20 @@ EXPERIENCES = ["Robot State Viewer", "Physics Simulator"]
 # the fast vllm-mlx serving tier (~0.3s/frame, real INTENT + FEATURE output).
 # Gemma stays selectable but runs on the direct mlx-vlm path (its vllm vision path
 # is broken). See the SUPPORT reduced test case.
-DEFAULT_MODEL = os.environ.get("PAVE_DEFAULT_MODEL", "Qwen3-VL")
+DEFAULT_MODEL = os.environ.get("PAVE_DEFAULT_MODEL") or perception._checkpoint_label("qwen")
+# VLM titles come from perception.VLM_MODELS, which derives them from each
+# backend's checkpoint id — dropdown text == CLI preflight title == HF cache
+# dir basename (e.g. "Qwen3-VL-4B-Instruct-3bit"), with env overrides shown.
 MODELS = [
-    "No model", "Qwen3-VL", "Qwen3-VL 2B",
-    "Qwen3.5 2B (Rishu11277)", "Fourier Qwen2-VL 2B (mradermacher)",
-    "Gemma 4 E2B", "Gemma 4 E4B", "DINOv3", "V-JEPA 2.1", "LingBot-Map",
+    "No model", *perception.VLM_MODELS,
+    "DINOv3", "V-JEPA 2.1", "LingBot-Map",
 ]
 MODEL_BACKEND = {
     "No model": "none",
-    "Qwen3-VL": "qwen", "Qwen3-VL 2B": "qwen_2b",
-    "Qwen3.5 2B (Rishu11277)": "rishu_qwen35_2b",
-    "Fourier Qwen2-VL 2B (mradermacher)": "fourier_qwen2vl_2b",
-    "Gemma 4 E2B": "gemma_e2b", "Gemma 4 E4B": "gemma",
+    **perception.VLM_MODELS,
     "DINOv3": "dino", "V-JEPA 2.1": "vjepa", "LingBot-Map": "lingbot",
 }
-VLM_BACKENDS = {"qwen", "qwen_2b", "rishu_qwen35_2b", "fourier_qwen2vl_2b", "gemma", "gemma_e2b"}
+VLM_BACKENDS = {"qwen", "qwen_2b", "qwen_8b", "qwen35_2b", "fourier_qwen2vl_2b", "gemma", "gemma_e2b"}
 # "Idle" is the default so nothing is posted until a person actually selects a
 # real input; switch to "Camera (VLM)" to drive the robot from the live model
 # (gesture recognition) instead. Idle intentionally sends NOTHING — the
@@ -327,7 +326,8 @@ def backend_mode_hint(backend_key: str) -> str:
     if backend_key == "none":
         return "not loaded"
     if backend_key in VLM_BACKENDS:
-        runtime = (os.environ.get("PAVE_VLM_BACKEND") or os.environ.get("PAVE_VLM_RUNTIME") or "vllm-mlx").strip().lower()
+        from pave_mlx.backends import planned_runtime
+        runtime = planned_runtime(backend_key)
         if runtime in {"mlx-vlm", "mlx_vlm", "direct", "inprocess", "in-process"}:
             return "real MLX (mlx-vlm)" if importlib.util.find_spec("mlx_vlm") else "needs mlx-vlm + ~5GB"
         return "vLLM-MLX server" if importlib.util.find_spec("vllm_mlx") else "needs vllm-mlx + ~5GB"
@@ -474,6 +474,16 @@ class PaveConsole(QWidget):
         # status label deliberately omits it (no duplication): "[state] intent: … Nms".
         self.model_box = QComboBox(); self.model_box.addItems(MODELS)
         self.model_box.currentTextChanged.connect(self._select_model)
+        # Runtime A/B selector: "auto" = per-model measured default
+        # (supports_vllm); an explicit choice overrides it so both serving
+        # paths can be speed-compared on ANY model, including pinned ones.
+        self.runtime_box = QComboBox(); self.runtime_box.addItems(["auto", "vllm-mlx", "mlx-vlm"])
+        self.runtime_box.setToolTip(
+            "Serving runtime for the selected VLM. auto = the model's measured default; "
+            "vllm-mlx = server tier (fast, but some models misbehave); mlx-vlm = direct "
+            "in-process. Changing this reloads the model."
+        )
+        self.runtime_box.currentTextChanged.connect(self._select_runtime)
         self.status_label = QLabel("")   # live: [state] intent + dims + ms
         self.status_label.setStyleSheet("color:#555555; font-family:Menlo,monospace;")
         self.disk_label = QLabel("")     # "n GB free", right-aligned
@@ -484,6 +494,7 @@ class PaveConsole(QWidget):
         self.dl_label = QLabel(""); self.endpoint_label = QLabel("endpoint: —")
         row2 = self._row()
         row2.addWidget(QLabel("Model:")); row2.addWidget(self.model_box)
+        row2.addWidget(QLabel("Runtime:")); row2.addWidget(self.runtime_box)
         row2.addWidget(self.status_label)
         row2.addStretch(); row2.addWidget(self.disk_label)
 
@@ -837,6 +848,17 @@ class PaveConsole(QWidget):
         if self._ui_ready:  # only user-initiated changes reload the model
             self._set_model_backend(name)
 
+    def _select_runtime(self, choice: str) -> None:
+        """Runtime A/B: apply the override and reload the current VLM with it."""
+        from pave_mlx.backends import set_runtime_override
+
+        set_runtime_override(choice)
+        name = self.model_box.currentText()
+        if not self._ui_ready or name not in perception.VLM_MODELS:
+            return  # takes effect on the next VLM load
+        self._log(f"runtime -> {choice}; reloading {name}")
+        self._set_model_backend(name)
+
     def _set_model_backend(self, name: str) -> None:
         """Load the selected model IN-PROCESS (no subprocess shim → a multi-GB VLM
         download can't deadlock the UI). Encoders overlay their dense features on
@@ -882,7 +904,8 @@ class PaveConsole(QWidget):
             self.last_dims = f"fetching {missing}" if missing else "fetching weights"
             self.model_status = "downloading"
         if name in perception.VLM_MODELS:
-            runtime = (os.environ.get("PAVE_VLM_BACKEND") or os.environ.get("PAVE_VLM_RUNTIME") or "vllm-mlx").strip().lower()
+            from pave_mlx.backends import planned_runtime
+            runtime = planned_runtime(perception.VLM_MODELS[name])
             self.endpoint_label.setText("model: vllm-mlx server" if "vllm" in runtime else "model: mlx-vlm direct")
         else:
             self.endpoint_label.setText("model: in-process")
@@ -893,7 +916,11 @@ class PaveConsole(QWidget):
         if self._loading:
             self._log(f"model load already in progress; not starting '{name}'")
             return
-        tier = "via vllm-mlx server" if name in perception.VLM_MODELS else "in-process"
+        if name in perception.VLM_MODELS:
+            from pave_mlx.backends import planned_runtime
+            tier = f"via {planned_runtime(perception.VLM_MODELS[name])}"
+        else:
+            tier = "in-process"
         self._log(f"loading model {tier}: {name}")
         self.model_box.setEnabled(False)
         self._loading = True
@@ -1369,11 +1396,11 @@ class PaveConsole(QWidget):
         """
         h, w = self.engine_handle, self._engine_worker
         if h is None or w is None or not self._model_ready:
-            self.prompt_status.setText("Load Gemma 4 E4B or Qwen3-VL before running prompt probes.")
+            self.prompt_status.setText("Load a VLM from the model dropdown before running prompt probes.")
             self._log(f"prompt probe {label} skipped: no loaded VLM")
             return
         if h.kind != "vlm":
-            self.prompt_status.setText("Prompt probes require a VLM backend; select Gemma 4 E4B or Qwen3-VL.")
+            self.prompt_status.setText("Prompt probes require a VLM backend; pick one from the model dropdown.")
             self._log(f"prompt probe {label} skipped: selected backend is {h.kind}")
             return
         if self.current_frame is not None:

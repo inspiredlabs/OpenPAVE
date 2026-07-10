@@ -1,1 +1,3 @@
-flask
+# flask 2.x breaks against werkzeug 3.x (werkzeug.__version__ removed);
+# the launcher's `pip install -U` keeps werkzeug current, so flask must be 3.x
+flask>=3.1
