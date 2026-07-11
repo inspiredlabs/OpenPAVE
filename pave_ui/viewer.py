@@ -202,6 +202,7 @@ CAMERA_IDLE_KEEPALIVE_S = float(os.environ.get("PAVE_CAMERA_IDLE_KEEPALIVE_S", "
 # job in flight (a longer decode — e.g. segmentation on the 1.5B — simply skips
 # ticks), and the worker coalesces to the newest frame, so it never backs up.
 FALCON_INTERVAL_MS = int(os.environ.get("PAVE_FALCON_INTERVAL_MS", "200"))
+YOLO_INTERVAL_MS = int(os.environ.get("PAVE_YOLO_INTERVAL_MS", "100"))  # nano runs ~4-10ms on CPU
 FALCON_DEFAULT_QUERY = os.environ.get("PAVE_FALCON_QUERY", "person")
 
 # Idempotency: repeated identical camera intents (STOP, TROT, ...) must NOT flood
@@ -409,6 +410,14 @@ class PaveConsole(QWidget):
         self.falcon_last_s = 0.0
         self._falcon_busy = False        # at most one detect job in flight (self-throttle)
 
+        # YOLO gesture detector (train/HaGRID.sh output) — same worker pattern as
+        # Falcon but tiny + CPU, so it coexists with a resident VLM.
+        self.yolo_worker = None
+        self.yolo_enabled = False
+        self.yolo_dets: list = []           # list[perception.Detection], normalised corners
+        self.yolo_intent = ""               # mapped intent of the top box (display-only)
+        self._yolo_busy = False
+
         self.state_server = StateServer(port=int(os.environ.get("STATE_SERVER_PORT", "7080")))
         self.viewer_url = self.state_server.start()
         self.browser_url = self.viewer_url  # replaced by the vite URL on "Browser"
@@ -428,6 +437,7 @@ class PaveConsole(QWidget):
         self.disk_timer.start(8000)             # disk frees/fills as downloads run
         self.dl_poll_timer = QTimer(self); self.dl_poll_timer.timeout.connect(self._poll_download)
         self.falcon_timer = QTimer(self); self.falcon_timer.timeout.connect(self._falcon_tick)
+        self.yolo_timer = QTimer(self); self.yolo_timer.timeout.connect(self._yolo_tick)
 
         self._refresh_model_availability()      # grey out models that won't fit on disk
         # Kick off the default model load ~100ms after this constructor returns
@@ -484,6 +494,17 @@ class PaveConsole(QWidget):
             "in-process. Changing this reloads the model."
         )
         self.runtime_box.currentTextChanged.connect(self._select_runtime)
+        # Camera input size for ALL VLMs. Prefill (image tokens) dominates
+        # request_ms, so this is the single biggest speed knob: measured on
+        # Qwen3.5-2B, 336px was ~19% faster than 448 with a BETTER gesture
+        # score; 280px faster still but starts costing pointing accuracy.
+        # "auto" = each model's measured default. Applies from the next frame.
+        self.input_px_box = QComboBox(); self.input_px_box.addItems(["auto", "280", "336", "448"])
+        self.input_px_box.setToolTip(
+            "Camera frame size sent to the VLM. Smaller = fewer image tokens = faster "
+            "prefill. auto = per-model default; explicit sizes apply to every model."
+        )
+        self.input_px_box.currentTextChanged.connect(self._select_input_px)
         self.status_label = QLabel("")   # live: [state] intent + dims + ms
         self.status_label.setStyleSheet("color:#555555; font-family:Menlo,monospace;")
         self.disk_label = QLabel("")     # "n GB free", right-aligned
@@ -496,7 +517,9 @@ class PaveConsole(QWidget):
         row2.addWidget(QLabel("Model:")); row2.addWidget(self.model_box)
         row2.addWidget(QLabel("Runtime:")); row2.addWidget(self.runtime_box)
         row2.addWidget(self.status_label)
-        row2.addStretch(); row2.addWidget(self.disk_label)
+        row2.addStretch()
+        row2.addWidget(QLabel("Input px:")); row2.addWidget(self.input_px_box)
+        row2.addWidget(self.disk_label)
 
         # Row 3 — runtime
         kind, device = detect_compute_backend()
@@ -542,7 +565,16 @@ class PaveConsole(QWidget):
         self.falcon_task_box.currentTextChanged.connect(self._falcon_set_task)
         self.falcon_status = QLabel("")
         self.falcon_status.setStyleSheet("color:#9ad; font-family:Menlo,monospace;")
+        self.yolo_chk = QCheckBox("YOLO gestures")
+        self.yolo_chk.setToolTip("Fine-tuned YOLO-nano gesture detector (train/HaGRID.sh). "
+                                 "Single-digit-ms on CPU — the Orion O6 / Mali candidate. "
+                                 "Newest train/runs/*/weights/best.pt; PAVE_YOLO_MODEL overrides.")
+        self.yolo_chk.toggled.connect(self._toggle_yolo)
+        self.yolo_status = QLabel("")
+        self.yolo_status.setStyleSheet("color:#9d9; font-family:Menlo,monospace;")
         falcon_bar = self._row()
+        falcon_bar.addWidget(self.yolo_chk)
+        falcon_bar.addWidget(self.yolo_status)
         falcon_bar.addWidget(self.falcon_chk)
         falcon_bar.addWidget(QLabel("query:")); falcon_bar.addWidget(self.falcon_query_edit)
         falcon_bar.addWidget(QLabel("task:")); falcon_bar.addWidget(self.falcon_task_box)
@@ -848,6 +880,12 @@ class PaveConsole(QWidget):
         if self._ui_ready:  # only user-initiated changes reload the model
             self._set_model_backend(name)
 
+    def _select_input_px(self, choice: str) -> None:
+        """Apply the camera input size to all subsequent VLM frames (no reload)."""
+        px = 0 if choice == "auto" else int(choice)
+        perception.set_input_size_override(px)
+        self._log(f"VLM input size -> {choice} (applies from the next frame)")
+
     def _select_runtime(self, choice: str) -> None:
         """Runtime A/B: apply the override and reload the current VLM with it."""
         from pave_mlx.backends import set_runtime_override
@@ -1079,6 +1117,8 @@ class PaveConsole(QWidget):
             self.capture_timer.start(33)  # ~30 FPS preview
             if self.falcon_enabled and self.falcon_worker is not None:
                 self.falcon_timer.start(FALCON_INTERVAL_MS)
+            if self.yolo_enabled and self.yolo_worker is not None:
+                self.yolo_timer.start(YOLO_INTERVAL_MS)
 
     def _tick(self) -> None:
         if self.cap is None:
@@ -1117,6 +1157,8 @@ class PaveConsole(QWidget):
         paint_dets = []
         if self.falcon_enabled and self.falcon_dets:
             paint_dets.extend(self.falcon_dets)
+        if self.yolo_enabled and self.yolo_dets:
+            paint_dets.extend(self.yolo_dets)
         if self._features:                               # VLM self-report (list[Detection])
             paint_dets.extend(self._features)
         if paint_dets:
@@ -1260,6 +1302,81 @@ class PaveConsole(QWidget):
             return
         self._falcon_busy = True
         self.falcon_worker.submit(self.current_frame.copy(), self.falcon_query, self.falcon_task)
+
+    # ── YOLO gesture detector (train/HaGRID.sh output) ───────────────
+    def _toggle_yolo(self, on: bool) -> None:
+        self.yolo_enabled = on
+        if on:
+            weights = perception.default_yolo_weights()
+            if not weights:
+                self.yolo_enabled = False
+                self.yolo_chk.blockSignals(True)
+                self.yolo_chk.setChecked(False)
+                self.yolo_chk.blockSignals(False)
+                self.yolo_status.setText("no trained model — run ./train/HaGRID.sh all")
+                self._log("yolo: no weights under train/runs (and PAVE_YOLO_MODEL unset)")
+                return
+            self._ensure_yolo_worker(weights)
+            if self.cap is not None:
+                self.yolo_timer.start(YOLO_INTERVAL_MS)
+            self._log(f"yolo on ({weights})")
+        else:
+            self._teardown_yolo()
+            self.yolo_status.setText("")
+            self._log("yolo off")
+
+    def _ensure_yolo_worker(self, weights: str) -> None:
+        if self.yolo_worker is not None:
+            return
+        self.yolo_status.setText("loading YOLO…")
+        w = perception.YoloGestureWorker(weights)
+        w.progress.connect(self.yolo_status.setText)
+        w.ready.connect(lambda s: (self.yolo_status.setText(s), self._log(f"yolo ready: {s}")))
+        w.failed.connect(self._on_yolo_failed)
+        w.detections_ready.connect(self._on_yolo_detections)
+        w.start()
+        self.yolo_worker = w
+
+    def _on_yolo_failed(self, msg: str) -> None:
+        self.yolo_timer.stop()
+        self._yolo_busy = False
+        self.yolo_status.setText(f"YOLO unavailable: {msg}")
+        self._log(f"yolo load failed: {msg}")
+
+    def _on_yolo_detections(self, dets, intent: str, ms: float) -> None:
+        self._yolo_busy = False
+        self.yolo_dets = list(dets or [])
+        self.yolo_intent = intent
+        self.yolo_status.setText(
+            f"YOLO: {intent or 'no gesture'} ×{len(self.yolo_dets)} · {ms:.0f}ms CPU"
+        )
+
+    def _yolo_tick(self) -> None:
+        """Submit the current frame to the gesture detector, one job at a time."""
+        if not self.yolo_enabled or self.current_frame is None or cv2 is None:
+            return
+        if self.yolo_worker is None or self._yolo_busy:
+            return
+        self._yolo_busy = True
+        self.yolo_worker.submit(self.current_frame.copy())
+
+    def _teardown_yolo(self) -> None:
+        if getattr(self, "yolo_timer", None) is not None:
+            self.yolo_timer.stop()
+        self._yolo_busy = False
+        self.yolo_dets = []
+        self.yolo_intent = ""
+        w = self.yolo_worker
+        if w is not None:
+            for sig in (w.progress, w.ready, w.failed, w.detections_ready):
+                try:
+                    sig.disconnect()
+                except Exception:
+                    pass
+            w.stop()
+            if w.isRunning():
+                w.wait(3000)
+            self.yolo_worker = None
 
     def _draw_detections(self, painter: QPainter, sw: int, sh: int, dets: list) -> None:
         """Paint annotated bounding boxes + labels onto the already-scaled pixmap
@@ -1715,6 +1832,7 @@ class PaveConsole(QWidget):
                 pass
             self.cap = None
         self._teardown_falcon()
+        self._teardown_yolo()
         self._teardown_engine()
         for name in list(self.procs):
             self._kill(name)

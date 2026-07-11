@@ -1,0 +1,9 @@
+# Generated / heavyweight training artifacts — recreate with ./HaGRID.sh
+HaGRID/images/
+HaGRID/labels/
+HaGRID/data.yaml
+HaGRID/dataset_stats.json
+runs/
+weights/
+*.pt
+*.onnx

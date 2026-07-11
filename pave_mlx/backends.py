@@ -93,8 +93,11 @@ def _snapshot_complete(snapshot: Path) -> bool:
         weights = set(data.get("weight_map", {}).values())
         shards_present = bool(weights) and all((snapshot / name).is_file() for name in weights)
         # Accept a stale index that names shards but ships a single consolidated
-        # model.safetensors (e.g. Qwen3-VL-*-3bit) — see missing_snapshot_files.
-        return shards_present or single_file
+        # model.safetensors (e.g. Qwen3-VL-*-3bit) — but ONLY that exact file:
+        # accepting any .safetensors here let a mid-download multi-shard snapshot
+        # (some shards present, some in flight) load and fail with hundreds of
+        # "Missing parameters" (moondream3, observed live).
+        return shards_present or (snapshot / "model.safetensors").is_file()
     return single_file
 
 
@@ -216,6 +219,51 @@ def _patch_bpe_streaming_detokenizer_utf8() -> bool:
 
     cls.add_token = add_token_utf8_safe
     cls._openpave_utf8_safe = True
+    return True
+
+
+def _patch_moondream3_flat_checkpoint() -> bool:
+    """Accept moondream3 MLX conversions with pre-0.6.4 flat key names.
+
+    mlx-vlm 0.6.4 nests moondream3 one module deeper than older releases —
+    it expects text.model.model.blocks.* / vision.encoder.encoder.* while the
+    beshkenadze 4-bit conversion stores text.model.blocks.* /
+    vision.encoder.* ("Missing 648 parameters", observed live). Remap by
+    collapsing one repeated path segment wherever that resolves an expected
+    key from an on-disk one; exact-match keys are untouched.
+    """
+    try:
+        from mlx_vlm.models.moondream3 import moondream3
+    except Exception:
+        return False
+    model_cls = getattr(moondream3, "Model", None)
+    if model_cls is None or not callable(getattr(model_cls, "load_weights", None)):
+        return False
+    if getattr(model_cls, "_openpave_flat_keys", False):
+        return True
+
+    original_load_weights = model_cls.load_weights
+
+    def load_weights_with_flat_remap(self, weights, *args, **kwargs):
+        from mlx.utils import tree_flatten
+
+        as_items = not isinstance(weights, dict)
+        wd = dict(weights)
+        expected = {k for k, _ in tree_flatten(self.parameters())}
+        for key in list(wd):
+            if key in expected:
+                continue
+            parts = key.split(".")
+            for i in range(len(parts) - 1):
+                if parts[i] == parts[i + 1]:  # sanitize doubled a.b.b.c -> module has a.b.c
+                    collapsed = ".".join(parts[: i + 1] + parts[i + 2:])
+                    if collapsed in expected:
+                        wd[collapsed] = wd.pop(key)
+                        break
+        return original_load_weights(self, list(wd.items()) if as_items else wd, *args, **kwargs)
+
+    model_cls.load_weights = load_weights_with_flat_remap
+    model_cls._openpave_flat_keys = True
     return True
 
 
@@ -385,6 +433,8 @@ class MlxVlmBackend:
                 self.compat_notes.append("Gemma 4 shared-KV load filter active")
             if _patch_bpe_streaming_detokenizer_utf8():
                 self.compat_notes.append("utf-8-safe BPE streaming detokenizer")
+            if "moondream" in self.model_id.lower() and _patch_moondream3_flat_checkpoint():
+                self.compat_notes.append("moondream3 checkpoint key remap")
             self._generate, self._apply = generate, apply_chat_template
             load_target = _local_hf_snapshot(self.model_id) or self.model_id
             if load_target != self.model_id:
@@ -398,11 +448,43 @@ class MlxVlmBackend:
                 )
                 self._model, self._processor = load(load_target)
                 self._config = load_config(load_target) if load_config else getattr(self._processor, "config", None)
+            self._draft_kwargs = self._load_mtp_drafter()
             self.mode = "loaded"
             self.load_status = "; ".join(self.compat_notes)
         except Exception as exc:  # noqa: BLE001
             self.load_status = _summarize_vlm_load_error(self.name, exc, self.compat_notes)
             self.load_error = _format_vlm_load_error(self.name, self.model_id, exc, self.compat_notes)
+
+    def _load_mtp_drafter(self) -> dict:
+        """Opt-in self-speculative decode from the checkpoint's own MTP head.
+
+        Qwen3.5 ships mtp.* tensors that the main loader drops; mlx-vlm's
+        splitter extracts them into a standalone drafter:
+          python -m mlx_vlm.speculative.drafters.qwen3_5_mtp.split \
+            --model Qwen/Qwen3.5-2B --output ./models/qwen35-2b-mtp
+        Measured on the short INTENT/FEATURE replies the gain is marginal
+        (decode is ~15 tokens), so this is OFF by default — set
+        PAVE_QWEN35_MTP=1 for longer outputs (OBSERVE sentences) where the
+        accepted-draft-tokens per step actually add up."""
+        if os.environ.get("PAVE_QWEN35_MTP", "0") != "1":
+            return {}
+        model_type = str((self._config or {}).get("model_type", "") if isinstance(self._config, dict)
+                         else getattr(self._config, "model_type", ""))
+        if "qwen3_5" not in model_type:
+            return {}
+        path = Path(os.environ.get("PAVE_QWEN35_MTP_PATH", "./models/qwen35-2b-mtp")).expanduser()
+        if not (path / "config.json").is_file():
+            self.compat_notes.append(f"MTP drafter requested but {path} missing (run the splitter)")
+            return {}
+        try:
+            from mlx_vlm.speculative.drafters import load_drafter
+
+            draft, kind = load_drafter(str(path), kind="mtp")
+            self.compat_notes.append(f"self-speculative decode: MTP drafter {path.name}")
+            return {"draft_model": draft, "draft_kind": kind}
+        except Exception as exc:  # drafter is an optimisation, never a blocker
+            self.compat_notes.append(f"MTP drafter failed to load: {type(exc).__name__}")
+            return {}
 
     def embed(self, image_bgr: np.ndarray) -> np.ndarray:
         raise NotImplementedError(f"{self.name} is a VLM; the shim calls generate(), not embed()")
@@ -414,7 +496,8 @@ class MlxVlmBackend:
 
         pil = Image.fromarray(np.ascontiguousarray(image_bgr[:, :, ::-1]).astype(np.uint8))
         formatted = self._apply(self._processor, self._config, prompt, num_images=1)
-        out = self._generate(self._model, self._processor, formatted, [pil], verbose=False, max_tokens=max_tokens)
+        out = self._generate(self._model, self._processor, formatted, [pil], verbose=False,
+                             max_tokens=max_tokens, **getattr(self, "_draft_kwargs", {}))
         return out if isinstance(out, str) else getattr(out, "text", str(out))
 
 
@@ -1019,6 +1102,41 @@ class Qwen35VLMBackend(QwenVLMBackend):
     model_id = os.environ.get("QWEN35_VLM_MODEL", "Qwen/Qwen3.5-2B")
 
 
+class Moondream3Backend(QwenVLMBackend):
+    # cache: models--beshkenadze--moondream3-preview-mlx-4bit (~5.5 GB).
+    # Moondream3 preview (9B MoE, 4-bit MLX conversion) — notable for its
+    # SuperBPE tokenizer (fewer tokens on prose) and strong grounding claims.
+    # Experimental tier: untested prompt adherence; pinned to the direct
+    # mlx-vlm path until its vllm-mlx behavior is verified.
+    name = "moondream3"
+    supports_vllm = False
+    model_id = os.environ.get("MOONDREAM3_MODEL", "beshkenadze/moondream3-preview-mlx-4bit")
+
+
+class SmolVLM256MBackend(QwenVLMBackend):
+    # cache: models--moot20--SmolVLM-256M-Instruct-MLX (~0.5 GB).
+    # Deployment-target candidate for the Orion O6 tier: 256M params, the
+    # smallest VLM in the registry. Untuned prompt-wise — expect weak gesture
+    # accuracy; the point is request_ms and feasibility experiments before
+    # porting off MLX.
+    name = "smolvlm_256m"
+    model_id = os.environ.get("SMOLVLM_256M_MODEL", "moot20/SmolVLM-256M-Instruct-MLX")
+
+
+class Fourier4BitBackend(QwenVLMBackend):
+    # local: models/fourier-qwen2vl-2b-4bit (~1.1 GB) — the measured daily
+    # driver (10/12 gestures, ~650-900ms). Selectable without env juggling.
+    name = "fourier_4bit"
+    model_id = os.environ.get("FOURIER_4BIT_MODEL", str(Path(__file__).resolve().parents[1] / "models/fourier-qwen2vl-2b-4bit"))
+
+
+class Fourier3BitBackend(QwenVLMBackend):
+    # local: models/fourier-qwen2vl-2b-3bit (~1.9 GB) — ~8%% faster than 4-bit
+    # via vllm-mlx (734 vs 801ms median @448); quality to be judged live.
+    name = "fourier_3bit"
+    model_id = os.environ.get("FOURIER_3BIT_MODEL", str(Path(__file__).resolve().parents[1] / "models/fourier-qwen2vl-2b-3bit"))
+
+
 class FourierQwen2VLBackend(QwenVLMBackend):
     # cache: models--whyisverysmart--Fourier-Qwen2-VL-2B-0.67 (4.1 GB) — KEEP.
     # Best gesture recognition measured: 10/12 with the gesture-name prompt +
@@ -1244,7 +1362,11 @@ _REGISTRY = {
     "qwen_2b": Qwen2BVLMBackend,
     "qwen_8b": Qwen8BVLMBackend,
     "qwen35_2b": Qwen35VLMBackend,
+    "moondream3": Moondream3Backend,
+    "smolvlm_256m": SmolVLM256MBackend,
     "fourier_qwen2vl_2b": FourierQwen2VLBackend,
+    "fourier_4bit": Fourier4BitBackend,
+    "fourier_3bit": Fourier3BitBackend,
     "gemma": GemmaVLMBackend,
     "gemma_e2b": GemmaE2BVLMBackend,
     "falcon": FalconPerceptionBackend,
@@ -1300,5 +1422,5 @@ def checkpoint_label(name: str) -> str:
     return backend_model_id(name).rstrip("/").split("/")[-1]
 
 
-VLM_NAMES = {"qwen", "qwen_2b", "qwen_8b", "qwen35_2b", "fourier_qwen2vl_2b", "gemma", "gemma_e2b"}
+VLM_NAMES = {"qwen", "qwen_2b", "qwen_8b", "qwen35_2b", "moondream3", "smolvlm_256m", "fourier_qwen2vl_2b", "fourier_4bit", "fourier_3bit", "gemma", "gemma_e2b"}
 DETECTOR_NAMES = {"falcon"}  # structured detect/segment backends (not intent producers)

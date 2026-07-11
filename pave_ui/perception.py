@@ -49,7 +49,11 @@ _VLM_SIZE_BY_KEY = {
     "qwen_2b": 1.78,
     "qwen_8b": 5.4,
     "qwen35_2b": 4.5,
+    "moondream3": 5.5,
+    "smolvlm_256m": 0.52,
     "fourier_qwen2vl_2b": 4.42,
+    "fourier_4bit": 1.1,
+    "fourier_3bit": 1.9,
     "gemma_e2b": 4.3,
     "gemma": 6.83,
 }
@@ -70,13 +74,31 @@ VLM_INPUT_SIZE = int(os.environ.get("PAVE_VLM_INPUT_SIZE", "448"))
 # on the coarse 3x3-grid task). Gemma re-encodes to a fixed size internally, so
 # this knob only matters for Qwen.
 VLM_INPUT_SIZE_QWEN = int(os.environ.get("PAVE_VLM_INPUT_SIZE_QWEN", "448"))
+# Qwen3.5-2B: prefill (image tokens) dominates request_ms; 336px measured
+# median 857ms vs 1058ms @448 AND a better gesture score (11/12 vs 10/12).
+# 280px is faster still (699ms) but drops pointing accuracy — don't go lower.
+VLM_INPUT_SIZE_QWEN35 = int(os.environ.get("PAVE_VLM_INPUT_SIZE_QWEN35", "336"))
 VLM_MAX_TOKENS = int(os.environ.get("PAVE_VLM_MAX_TOKENS", "48"))
 VLM_FAST_INTENT_ONLY = os.environ.get("PAVE_VLM_FAST_INTENT_ONLY", "0") == "1"
 
 
+_INPUT_SIZE_OVERRIDE = 0  # 0 = per-model defaults; set by the UI "Input px" selector
+
+
+def set_input_size_override(px: int | None) -> None:
+    """Explicit camera input size for ALL VLMs (UI selector). 0/None = auto."""
+    global _INPUT_SIZE_OVERRIDE
+    _INPUT_SIZE_OVERRIDE = int(px or 0)
+
+
 def vlm_input_size(model_name: str) -> int:
     """Camera input size for a VLM (Qwen: smaller square = fewer image tokens)."""
-    return VLM_INPUT_SIZE_QWEN if "qwen" in (model_name or "").lower() else VLM_INPUT_SIZE
+    if _INPUT_SIZE_OVERRIDE:
+        return _INPUT_SIZE_OVERRIDE
+    name = (model_name or "").lower()
+    if "qwen3.5" in name or "qwen35" in name:
+        return VLM_INPUT_SIZE_QWEN35
+    return VLM_INPUT_SIZE_QWEN if "qwen" in name else VLM_INPUT_SIZE
 
 
 _MLX_DATA_RESIZE_FAILED = False
@@ -1326,3 +1348,120 @@ class FalconDetectorWorker(QThread):
                 traceback.print_exc()
                 continue
             self.detections_ready.emit(detections, query, task, dt)
+
+
+# ── YOLO gesture detector (train/HaGRID.sh output) ───────────────────────────
+# A fine-tuned YOLO-nano (yolo26n by default) replaces the ~857ms VLM gesture
+# gate with a single-digit-ms detector. Runs on CPU ON PURPOSE: the nano model
+# is fast enough there, it leaves Metal entirely to the MLX engines (same
+# one-thread-owns-Metal rule as EngineWorker), and CPU latency on this Mac is
+# the honest proxy for the Orion O6 / Mali deployment target.
+
+# detector class -> OpenPAVE intent token. UP/DOWN are new (not in _LABELS yet)
+# so the viewer shows them but does not post them to intent_ingress.
+YOLO_CLASS_TO_INTENT = {
+    "stop": "STOP",
+    "fist": "HOME",
+    "like": "TROT",
+    "point_left": "LEFT",
+    "point_right": "RIGHT",
+    "point_up": "UP",
+    "point_down": "DOWN",
+}
+YOLO_CONF_MIN = float(os.environ.get("PAVE_YOLO_CONF", "0.50"))
+YOLO_IMGSZ = int(os.environ.get("PAVE_YOLO_IMGSZ", "320"))
+
+
+def default_yolo_weights() -> str | None:
+    """Newest trained gesture model under train/runs; PAVE_YOLO_MODEL overrides."""
+    env = os.environ.get("PAVE_YOLO_MODEL", "").strip()
+    if env:
+        return env
+    runs = Path(__file__).resolve().parents[1] / "train" / "runs"
+    cands = sorted(runs.glob("*/weights/best.pt"), key=lambda p: p.stat().st_mtime)
+    return str(cands[-1]) if cands else None
+
+
+class YoloGestureWorker(QThread):
+    """YOLO gesture detector on its own thread, mirroring FalconDetectorWorker:
+    lazy load, coalescing queue (stale frames dropped), one job in flight."""
+
+    progress = pyqtSignal(str)
+    ready = pyqtSignal(str)
+    failed = pyqtSignal(str)
+    detections_ready = pyqtSignal(object, str, float)  # [Detection], intent, ms
+
+    def __init__(self, weights: str | None = None) -> None:
+        super().__init__()
+        self._jobs: "queue.Queue[np.ndarray | None]" = queue.Queue()
+        self._weights = weights or default_yolo_weights()
+        self._model = None
+        self._names: dict[int, str] = {}
+
+    def submit(self, frame_bgr: np.ndarray) -> None:
+        self._jobs.put(frame_bgr)
+
+    def stop(self) -> None:
+        self._jobs.put(None)
+
+    def _ensure_model(self):
+        if self._model is not None:
+            return self._model
+        if not self._weights or not Path(self._weights).exists():
+            raise FileNotFoundError(
+                f"no trained gesture model at {self._weights!r} — run ./train/HaGRID.sh all"
+            )
+        self.progress.emit(f"loading {Path(self._weights).name}…")
+        from ultralytics import YOLO  # heavy import, deferred to this thread
+
+        self._model = YOLO(self._weights)
+        # warmup so the first live frame isn't a 200ms outlier
+        self._model.predict(np.zeros((YOLO_IMGSZ, YOLO_IMGSZ, 3), dtype=np.uint8),
+                            imgsz=YOLO_IMGSZ, device="cpu", verbose=False)
+        self._names = dict(self._model.names)
+        self.ready.emit(f"{Path(self._weights).name} loaded ({len(self._names)} classes, CPU)")
+        return self._model
+
+    def _detect(self, frame_bgr: np.ndarray) -> tuple[list, str]:
+        res = self._model.predict(frame_bgr, imgsz=YOLO_IMGSZ, conf=YOLO_CONF_MIN,
+                                  device="cpu", verbose=False)[0]
+        dets, best_conf, intent = [], 0.0, ""
+        for xyxyn, conf, cls in zip(res.boxes.xyxyn.tolist(),
+                                    res.boxes.conf.tolist(),
+                                    res.boxes.cls.tolist()):
+            name = self._names.get(int(cls), str(int(cls)))
+            dets.append(Detection(*xyxyn, conf, int(cls), f"{name} {conf:.2f}"))
+            mapped = YOLO_CLASS_TO_INTENT.get(name, "")
+            if mapped and conf > best_conf:
+                best_conf, intent = conf, mapped
+        return dets, intent
+
+    def run(self) -> None:
+        while True:
+            job = self._jobs.get()
+            if job is None:
+                break
+            while True:  # coalesce: keep only the newest frame
+                try:
+                    nxt = self._jobs.get_nowait()
+                except queue.Empty:
+                    break
+                if nxt is None:
+                    job = None
+                    break
+                job = nxt
+            if job is None:
+                break
+            try:
+                self._ensure_model()
+                t0 = time.perf_counter()
+                dets, intent = self._detect(job)
+                ms = (time.perf_counter() - t0) * 1000.0
+            except FileNotFoundError as exc:
+                self.failed.emit(str(exc))
+                break
+            except Exception:  # noqa: BLE001 - transient detect error must not kill the thread
+                import traceback
+                traceback.print_exc()
+                continue
+            self.detections_ready.emit(dets, intent, ms)

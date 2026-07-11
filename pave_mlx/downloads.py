@@ -18,7 +18,11 @@ _PREFLIGHT_SIZE_BY_KEY = {
     "qwen_2b": 1.78,
     "qwen_8b": 5.4,
     "qwen35_2b": 4.5,
+    "moondream3": 5.5,
+    "smolvlm_256m": 0.52,
     "fourier_qwen2vl_2b": 4.42,
+    "fourier_4bit": 1.1,
+    "fourier_3bit": 1.9,
     "gemma": 6.83,
 }
 VLM_MODELS = {checkpoint_label(key): key for key in _PREFLIGHT_SIZE_BY_KEY}
