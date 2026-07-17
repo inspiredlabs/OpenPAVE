@@ -235,6 +235,9 @@ class MockAdapter:
             if fast is not None
             else os.environ.get("MOCK_ADAPTER_FAST", "0").lower() in {"1", "true", "yes"}
         )
+        # per-command settle time (the "command cycle"): tunable so the UI can
+        # trade realism (PuppyPi-ish settle) against gesture responsiveness
+        self.settle_s = float(os.environ.get("MOCK_ADAPTER_SETTLE_MS", "300")) / 1000.0
         self.pose = {"x": 0.0, "y": 0.0, "heading": 0.0}
         self.joint_state = {
             "lf": 0.0,
@@ -272,7 +275,7 @@ class MockAdapter:
             self._step("go_home"),
         ]
         self.joint_state = {key: 0.0 for key in self.joint_state}
-        self._sleep(0.3)
+        self._sleep(self.settle_s)
         return self._result(steps)
 
     def trot(self) -> AdapterActionResult:
@@ -289,7 +292,7 @@ class MockAdapter:
         steps = [self._step("go_home")]
         self.pose = {"x": 0.0, "y": 0.0, "heading": 0.0}
         self.joint_state = {key: 0.0 for key in self.joint_state}
-        self._sleep(0.3)
+        self._sleep(self.settle_s)
         return self._result(steps)
 
     def move(self, vx: float, yaw: float, duration_ms: int) -> AdapterActionResult:
@@ -299,12 +302,16 @@ class MockAdapter:
             self._step("set_mark_time:false"),
             self._step("set_running:true"),
         ]
-        self._sleep(0.3)
+        self._sleep(self.settle_s)
         steps.append(self._step("velocity_move"))
         if all(step.get("return_code") == 0 for step in steps):
             seconds = max(0.0, duration_ms / 1000.0)
             self.pose["x"] += vx * seconds
             self.pose["heading"] += yaw * seconds
+            # velocity_move includes set_mark_time:false — trot stops, like the
+            # real PuppyPi path; joint_state is how downstream (the visualiser's
+            # bob) knows whether the robot is currently trotting.
+            self.joint_state = {key: 0.0 for key in self.joint_state}
         return self._result(steps)
 
 

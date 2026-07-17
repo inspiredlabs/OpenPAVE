@@ -1,0 +1,328 @@
+{
+  "schema": "openpave.hand-landmark-sensorimotor-plan.v2",
+  "generated_at": "2026-07-13T12:59:29+0200",
+  "teacher": {
+    "exists": true,
+    "path": "train/weights/hand_landmarker.task",
+    "bytes": 7819105,
+    "sha256": "fbc2a30080c3c557093b5ddfc334698132eb341044ccee322ccf8bcf3607cde1",
+    "members": [
+      {
+        "name": "hand_detector.tflite",
+        "bytes": 2339878,
+        "sha256": "945f713bc23570bd4ed60f848c401dc8eaf95713183d43ba14cf12e467d27a7d"
+      },
+      {
+        "name": "hand_landmarks_detector.tflite",
+        "bytes": 5478949,
+        "sha256": "6acda74af3fbf40e68265c20c7394b2bad81a16a481dcd79ad7a081887c3d6b9"
+      }
+    ]
+  },
+  "objective": "Gradient-free sensorimotor hand reference frames learned from ordered MediaPipe 21-point 2.5D constellations",
+  "sources": {
+    "20bn-jester-raw": {
+      "path": "train/datasets/20bn-jester",
+      "exists": true,
+      "role": "video diversity + temporal intent; teacher distillation input",
+      "joint_truth": false,
+      "top_level_entries": 7
+    },
+    "jester": {
+      "path": "train/datasets/jester/prepared.npz",
+      "exists": true,
+      "role": "filtered teacher landmarks + explicit No-gesture negatives",
+      "joint_truth": false,
+      "bytes": 791553773,
+      "frames": 21331,
+      "fields": [
+        "imgs",
+        "labels",
+        "is_val",
+        "landmarks",
+        "has_lm",
+        "presence_known"
+      ],
+      "teacher_landmarks": 19875,
+      "validation_frames": 4104,
+      "labels": {
+        "like": 583,
+        "no_hand": 18659,
+        "point_left": 547,
+        "point_right": 441,
+        "stop": 1101
+      }
+    },
+    "hagrid": {
+      "path": "train/datasets/hagrid/prepared.npz",
+      "exists": true,
+      "role": "camera/person/background diversity; teacher pseudo-landmarks",
+      "joint_truth": false,
+      "bytes": 89463986,
+      "frames": 2493,
+      "fields": [
+        "imgs",
+        "labels",
+        "is_val",
+        "landmarks",
+        "has_lm"
+      ],
+      "teacher_landmarks": 2100,
+      "validation_frames": 350,
+      "labels": {
+        "fist": 470,
+        "like": 259,
+        "no_hand": 393,
+        "point_left": 33,
+        "point_right": 35,
+        "point_vertical": 547,
+        "stop": 756
+      }
+    },
+    "hagrid_shapes": {
+      "path": "train/datasets/hagrid_shapes/prepared.npz",
+      "exists": true,
+      "role": "gesture-shape diversity; teacher pseudo-landmarks",
+      "joint_truth": false,
+      "bytes": 259890861,
+      "frames": 7250,
+      "fields": [
+        "imgs",
+        "labels",
+        "is_val",
+        "landmarks",
+        "has_lm"
+      ],
+      "teacher_landmarks": 6502,
+      "validation_frames": 1015,
+      "labels": {
+        "fist": 1500,
+        "like": 1500,
+        "no_hand": 3000,
+        "point_vertical": 500,
+        "stop": 750
+      }
+    },
+    "crude": {
+      "path": "train/datasets/crude/prepared.npz",
+      "exists": true,
+      "role": "target-camera domain probes; never the only validation source",
+      "joint_truth": false,
+      "bytes": 152552917,
+      "frames": 4812,
+      "fields": [
+        "imgs",
+        "labels",
+        "is_val",
+        "landmarks",
+        "has_lm"
+      ],
+      "teacher_landmarks": 3247,
+      "validation_frames": 920,
+      "labels": {
+        "fist": 436,
+        "like": 551,
+        "no_hand": 1565,
+        "point_left": 514,
+        "point_right": 7,
+        "point_vertical": 1235,
+        "stop": 504
+      }
+    },
+    "ipn": {
+      "path": "train/datasets/ipn/prepared.npz",
+      "exists": true,
+      "role": "ordered video/background diversity; teacher pseudo-landmarks",
+      "joint_truth": false,
+      "bytes": 68297044,
+      "frames": 2100,
+      "fields": [
+        "imgs",
+        "labels",
+        "is_val",
+        "landmarks",
+        "has_lm"
+      ],
+      "teacher_landmarks": 1201,
+      "validation_frames": 334,
+      "labels": {
+        "fist": 442,
+        "like": 83,
+        "no_hand": 899,
+        "point_left": 74,
+        "point_right": 7,
+        "point_vertical": 224,
+        "stop": 371
+      }
+    },
+    "yolo26": {
+      "path": "train/datasets/yolo26/prepared.npz",
+      "exists": true,
+      "role": "held-out cross-domain gesture probe; teacher pseudo-landmarks",
+      "joint_truth": false,
+      "bytes": 38416364,
+      "frames": 1564,
+      "fields": [
+        "imgs",
+        "labels",
+        "is_val",
+        "landmarks",
+        "has_lm"
+      ],
+      "teacher_landmarks": 1343,
+      "validation_frames": 57,
+      "labels": {
+        "like": 392,
+        "point_left": 189,
+        "point_right": 232,
+        "point_vertical": 503,
+        "stop": 248
+      }
+    },
+    "swipe_phases": {
+      "path": "train/datasets/swipe_phases/prepared.npz",
+      "exists": true,
+      "role": "motion-phase/trajectory curriculum; not joint ground truth",
+      "joint_truth": false,
+      "bytes": 39504239,
+      "frames": 1233,
+      "fields": [
+        "imgs",
+        "labels",
+        "is_val",
+        "landmarks",
+        "has_lm"
+      ],
+      "teacher_landmarks": 1233,
+      "validation_frames": 249,
+      "labels": {
+        "point_left": 498,
+        "point_vertical": 735
+      }
+    },
+    "nvgesture": {
+      "path": "train/datasets/nvgesture/raw",
+      "exists": true,
+      "role": "optional RGB/depth video diversity; currently empty",
+      "joint_truth": false,
+      "top_level_entries": 0
+    },
+    "dynamic-crops-classifier": {
+      "path": "train/datasets/dynamic_gestures/models/crops_classifier.onnx",
+      "exists": true,
+      "role": "optional motion-phase gate only; forbidden as joint supervision",
+      "joint_truth": false,
+      "bytes": 411683
+    },
+    "onehand10k": {
+      "path": "train/datasets/onehand10k",
+      "exists": false,
+      "role": "required/recommended manually annotated 21-joint RGB geometry",
+      "joint_truth": true,
+      "normalized_manifest": "train/datasets/onehand10k/openpave-21.jsonl",
+      "curriculum_ready": false
+    },
+    "freihand": {
+      "path": "train/datasets/freihand",
+      "exists": false,
+      "role": "recommended real multi-view 3D hand geometry",
+      "joint_truth": true,
+      "normalized_manifest": "train/datasets/freihand/openpave-21.jsonl",
+      "curriculum_ready": false
+    },
+    "interhand26m": {
+      "path": "train/datasets/interhand26m",
+      "exists": false,
+      "role": "optional large-scale 3D hand geometry; use a stratified subset",
+      "joint_truth": true,
+      "normalized_manifest": "train/datasets/interhand26m/openpave-21.jsonl",
+      "curriculum_ready": false
+    },
+    "coco-keypoints": {
+      "path": "train/datasets/coco-keypoints",
+      "exists": false,
+      "role": "separate 17-joint BODY tower; never map body joints to hand joints",
+      "joint_truth": false
+    }
+  },
+  "curriculum": [
+    {
+      "stage": 0,
+      "name": "freeze teacher",
+      "action": "hash the exact MediaPipe task; extract detector and landmarker only for inspection"
+    },
+    {
+      "stage": 1,
+      "name": "bounded constellation harvest",
+      "action": "distill x/y/z and world coordinates; require horizontal-flip consistency",
+      "sources": {
+        "crude": {
+          "limit": 600,
+          "stride": 3
+        },
+        "hagrid_shapes": {
+          "limit": 800,
+          "stride": 5
+        },
+        "jester": {
+          "limit": 800,
+          "stride": 10
+        }
+      },
+      "referee": {
+        "yolo26": {
+          "limit": 500,
+          "stride": 2
+        }
+      },
+      "accept": {
+        "teacher_score_min": 0.75,
+        "flip_error_px_max": 6.0
+      }
+    },
+    {
+      "stage": 2,
+      "name": "sensorimotor exploration",
+      "action": "walk wrist/palm anchors then finger chains; each action is a 3D joint displacement and each observation updates pose hypotheses",
+      "policies": [
+        "palm_anchor_scan",
+        "finger_chain_scan",
+        "deterministic_random_walk"
+      ]
+    },
+    {
+      "stage": 3,
+      "name": "additive reference-frame learning",
+      "action": "append a constellation only when existing hypotheses cannot explain it; no gradients and no destructive retraining",
+      "accept": {
+        "max_prototypes": 256,
+        "novelty_rms": 0.1
+      }
+    },
+    {
+      "stage": 4,
+      "name": "next-sensation proof",
+      "action": "predict the next landmark location from the current partial walk before revealing the MediaPipe observation",
+      "accept": {
+        "pck_010_min": 0.5,
+        "pck_020_min": 0.8,
+        "median_step_us_max": 1000
+      }
+    },
+    {
+      "stage": 5,
+      "name": "pixel sensor adapter (later)",
+      "action": "retain palm detector as the initial sensor; search RGB patches around each Monty-predicted next location; re-detect only when evidence collapses"
+    }
+  ],
+  "sensorimotor_training_allowed": true,
+  "pixel_landmarker_replacement_allowed": false,
+  "blocker": "The learned constellation substrate still needs a pixel Sensor Module. Until patch-search validation passes, MediaPipe remains the teacher/reference.",
+  "notes": [
+    "crops_classifier.onnx is permitted only as a motion-phase gate.",
+    "Teacher misses on gesture-labelled frames are unknown, not negative.",
+    "Split by subject/clip before sampling frames; never random-split adjacent frames.",
+    "This plan learns hand geometry from compact ordered episodes, not a broad RGB corpus.",
+    "No pixel runtime artifact is promoted from constellation-only results."
+  ]
+}

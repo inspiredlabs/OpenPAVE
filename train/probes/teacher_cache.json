@@ -1,0 +1,112 @@
+{
+  "gesture.intent/TROT_1.png": {
+    "raw": "Thumbs up",
+    "clamped": "TROT",
+    "s": 0.59
+  },
+  "gesture.intent/NOOP_1.png": {
+    "raw": "Pointing / RIGHT",
+    "clamped": "RIGHT",
+    "s": 0.94
+  },
+  "gesture.intent/TROT_2.png": {
+    "raw": "Thumbs up",
+    "clamped": "TROT",
+    "s": 0.47
+  },
+  "gesture.intent/LEFT_1.png": {
+    "raw": "Pointing / Left",
+    "clamped": "LEFT",
+    "s": 0.91
+  },
+  "gesture.intent/STOP_1.png": {
+    "raw": "Waving",
+    "clamped": "STOP",
+    "s": 0.46
+  },
+  "gesture.intent/NOOP_2.png": {
+    "raw": "Pointing finger / Down",
+    "clamped": "NOOP",
+    "s": 0.91
+  },
+  "gesture.intent/RIGHT_1.png": {
+    "raw": "Pointing / Down",
+    "clamped": "NOOP",
+    "s": 0.9
+  },
+  "gesture.intent/NOOP_3.png": {
+    "raw": "Pointing down / DOWN",
+    "clamped": "NOOP",
+    "s": 0.91
+  },
+  "gesture.intent/RIGHT_2.png": {
+    "raw": "Pointing / Left",
+    "clamped": "LEFT",
+    "s": 0.91
+  },
+  "gesture.intent/RIGHT_3.png": {
+    "raw": "Pointing / UP",
+    "clamped": "NOOP",
+    "s": 0.91
+  },
+  "gesture.intent/TROT_3.png": {
+    "raw": "Thumbs up",
+    "clamped": "TROT",
+    "s": 0.46
+  },
+  "gesture.intent/LEFT_2.png": {
+    "raw": "Pointing / UP",
+    "clamped": "NOOP",
+    "s": 0.91
+  },
+  "gesture.intent/LEFT_3.png": {
+    "raw": "Pointing / RIGHT",
+    "clamped": "RIGHT",
+    "s": 0.94
+  },
+  "gesture.intent/HOME_1.png": {
+    "raw": "Fist",
+    "clamped": "HOME",
+    "s": 0.48
+  },
+  "gesture.intent/HOME_2.png": {
+    "raw": "Pointing / LEFT",
+    "clamped": "LEFT",
+    "s": 0.95
+  },
+  "gesture.intent/HOME_3.png": {
+    "raw": "Fist",
+    "clamped": "HOME",
+    "s": 0.47
+  },
+  "hand.presence/NO_1.png": {
+    "raw": "Pointing",
+    "clamped": "YES",
+    "s": 0.47
+  },
+  "hand.presence/NO_2.png": {
+    "raw": "Pointing",
+    "clamped": "YES",
+    "s": 0.47
+  },
+  "hand.presence/NO_3.png": {
+    "raw": "Pointing",
+    "clamped": "YES",
+    "s": 0.48
+  },
+  "hand.presence/YES_1.png": {
+    "raw": "Thumbs up",
+    "clamped": "YES",
+    "s": 0.48
+  },
+  "hand.presence/YES_2.png": {
+    "raw": "Thumbs up",
+    "clamped": "YES",
+    "s": 0.48
+  },
+  "hand.presence/YES_3.png": {
+    "raw": "Thumbs up",
+    "clamped": "YES",
+    "s": 0.48
+  }
+}

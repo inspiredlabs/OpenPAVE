@@ -7,3 +7,8 @@ runs/
 weights/
 *.pt
 *.onnx
+insect-poc/data/
+insect-poc/runs/
+insect-poc/raw/
+datasets/**
+!datasets/README.md

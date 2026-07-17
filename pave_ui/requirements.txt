@@ -10,3 +10,6 @@ numpy>=1.24                   # frame buffers
 # and pave_mlx/requirements.txt. Without them the console still runs; the shim
 # returns the safe-default intent until a model is available.
 scikit-learn>=1.3        # SpatioTemporalProcessor (PCA/k-means) for the feature overlay
+mediapipe>=0.10.14       # CPU hand landmarks for the MediaPipe + RBF-SVM POC
+joblib>=1.3              # load the fitted sklearn SVM pipeline
+Pillow>=10.0             # extract training frames from the crude gesture GIFs

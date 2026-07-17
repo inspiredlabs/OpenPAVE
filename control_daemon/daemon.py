@@ -246,9 +246,13 @@ def main():
                 time.sleep(POLL_SEC)
                 continue
 
-            # Optional: simple per-action de-dupe (prevents repeated identical write spam)
+            # Optional: simple per-action de-dupe (prevents repeated identical write
+            # spam). MOVE is exempt: each MOVE is an incremental nudge (~5° per
+            # held pointing gesture, see intent_schema), so repeats are the
+            # commanded behaviour — continuous turning — not spam. Mode commands
+            # (TROT/STOP/HOME) stay de-duped; repeating those is a no-op.
             action_key = intent_action_key(normalized)
-            if action_key == last_action_key:
+            if normalized.get("intent") != "MOVE" and action_key == last_action_key:
                 time.sleep(POLL_SEC)
                 continue
             last_action_key = action_key

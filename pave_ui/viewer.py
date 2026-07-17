@@ -82,7 +82,8 @@ from PyQt6.QtCore import (  # noqa: E402
 from PyQt6.QtGui import QColor, QFont, QImage, QPainter, QPen, QPixmap  # noqa: E402
 from PyQt6.QtWidgets import (  # noqa: E402
     QApplication, QCheckBox, QComboBox, QHBoxLayout, QLabel, QLineEdit,
-    QPlainTextEdit, QPushButton, QSplitter, QStackedWidget, QVBoxLayout, QWidget,
+    QPlainTextEdit, QPushButton, QSizePolicy, QSpinBox, QSplitter, QStackedWidget,
+    QVBoxLayout, QWidget,
 )
 
 try:
@@ -122,6 +123,42 @@ MODEL_BACKEND = {
     **perception.VLM_MODELS,
     "DINOv3": "dino", "V-JEPA 2.1": "vjepa", "LingBot-Map": "lingbot",
 }
+# The runtime dropdown is delegate-prefixed (GPU/CPU) and FILTERS the model
+# list: GPU runtimes serve the MLX VLMs/encoders above; CPU runtimes serve the
+# fine-tuned YOLO gesture detectors (the Orion O6 / Mali rehearsal path, see
+# train/HaGRID.sh). "auto" behaves like GPU with each VLM's measured default.
+RUNTIMES = [
+    "auto",
+    "GPU · vLLM-MLX",
+    "GPU · MLX-VLM",
+    "CPU · PyTorch",
+    "CPU · ONNX Runtime",
+    "CPU · NCNN",
+    "CPU · MediaPipe SVM",
+    "CPU · TinyNet (distilled)",
+    "CPU · Monty (3D evidence)",
+    "CPU · Landmarker Tower",
+    "CPU · Landmark + Monty (3D evidence)",
+]
+RUNTIME_KEYS = {
+    "auto": "auto",
+    "GPU · vLLM-MLX": "vllm-mlx",
+    "GPU · MLX-VLM": "mlx-vlm",
+    "CPU · PyTorch": "pt",
+    "CPU · ONNX Runtime": "onnx",
+    "CPU · NCNN": "ncnn",
+    "CPU · MediaPipe SVM": "svm",
+    "CPU · TinyNet (distilled)": "tiny",
+    "CPU · Monty (3D evidence)": "monty",
+    "CPU · Landmarker Tower": "landmarks",
+    "CPU · Landmark + Monty (3D evidence)": "landmark-monty",
+}
+CPU_RUNTIME_KEYS = {"pt", "onnx", "ncnn", "svm", "tiny", "monty", "landmarks",
+                    "landmark-monty"}
+# Only intents the control plane understands get posted (pave_runtime/
+# intent_schema.py TEXT_ALIASES); UP/DOWN stay display-only until the schema
+# and adapters grow those motions.
+YOLO_POSTABLE_INTENTS = {"STOP", "TROT", "HOME", "LEFT", "RIGHT"}
 VLM_BACKENDS = {"qwen", "qwen_2b", "qwen_8b", "qwen35_2b", "fourier_qwen2vl_2b", "gemma", "gemma_e2b"}
 # "Idle" is the default so nothing is posted until a person actually selects a
 # real input; switch to "Camera (VLM)" to drive the robot from the live model
@@ -203,6 +240,16 @@ CAMERA_IDLE_KEEPALIVE_S = float(os.environ.get("PAVE_CAMERA_IDLE_KEEPALIVE_S", "
 # ticks), and the worker coalesces to the newest frame, so it never backs up.
 FALCON_INTERVAL_MS = int(os.environ.get("PAVE_FALCON_INTERVAL_MS", "200"))
 YOLO_INTERVAL_MS = int(os.environ.get("PAVE_YOLO_INTERVAL_MS", "100"))  # nano runs ~4-10ms on CPU
+# consecutive identical detector results required before an intent posts
+INTENT_STABLE_FRAMES = int(os.environ.get("PAVE_INTENT_STABLE_FRAMES", "3"))
+
+
+def status_chip(prefix: str, state: str, n: int, ms: float, us: float = 0.0) -> str:
+    """Fixed-length status line for streaming chips. Every field is padded or
+    truncated so the string NEVER changes character length between frames —
+    a chip that breathes makes change impossible to monitor."""
+    return (f"{prefix:<5.5s} {state:<8.8s} ×{min(n, 9)} · "
+            f"{min(ms, 999.9):5.1f}ms +{min(us, 999):3.0f}µs")
 FALCON_DEFAULT_QUERY = os.environ.get("PAVE_FALCON_QUERY", "person")
 
 # Idempotency: repeated identical camera intents (STOP, TROT, ...) must NOT flood
@@ -415,8 +462,29 @@ class PaveConsole(QWidget):
         self.yolo_worker = None
         self.yolo_enabled = False
         self.yolo_dets: list = []           # list[perception.Detection], normalised corners
-        self.yolo_intent = ""               # mapped intent of the top box (display-only)
+        self.yolo_intent = ""               # mapped intent of the top box
         self._yolo_busy = False
+        self._yolo_weights_override = None  # set by the CPU runtime's model dropdown
+
+        # MediaPipe-landmark SVM (train/mediapipe_svm.py) — third CPU path;
+        # renders the traditional MediaPipe hand skeleton on the feed.
+        self.svm_worker = None
+        self.svm_enabled = False
+        self.svm_dets: list = []
+        self.svm_hands: list = []           # [[(x,y)×21]] normalised, for the skeleton overlay
+        self.svm_intent = ""
+        self._svm_busy = False
+        self._svm_observation_sig = None     # publish speech only when the result changes
+        # detector intent debounce: a gesture must hold for N consecutive
+        # detector frames before it posts. Single-frame flickers (a face
+        # misread as a hand, a mid-transition hand shape) otherwise post stray
+        # MOVEs that kill a running trot — the "TROT won't restart" symptom.
+        self._intent_streak = ("", 0)
+        # turn latch: once a LEFT/RIGHT turn starts, the OPPOSITE direction is
+        # ignored until the pointing gesture is released (a stable non-turn
+        # outcome) — a wobbling finger near the cone edge must keep turning in
+        # the same direction, never flip-flop.
+        self._turn_latch = ""
 
         self.state_server = StateServer(port=int(os.environ.get("STATE_SERVER_PORT", "7080")))
         self.viewer_url = self.state_server.start()
@@ -438,6 +506,10 @@ class PaveConsole(QWidget):
         self.dl_poll_timer = QTimer(self); self.dl_poll_timer.timeout.connect(self._poll_download)
         self.falcon_timer = QTimer(self); self.falcon_timer.timeout.connect(self._falcon_tick)
         self.yolo_timer = QTimer(self); self.yolo_timer.timeout.connect(self._yolo_tick)
+        self.svm_timer = QTimer(self); self.svm_timer.timeout.connect(self._svm_tick)
+        self.artifact_timer = QTimer(self)
+        self.artifact_timer.timeout.connect(self._refresh_landmark_monty_artifacts)
+        self.artifact_timer.start(2000)
 
         self._refresh_model_availability()      # grey out models that won't fit on disk
         # Kick off the default model load ~100ms after this constructor returns
@@ -484,16 +556,25 @@ class PaveConsole(QWidget):
         # status label deliberately omits it (no duplication): "[state] intent: … Nms".
         self.model_box = QComboBox(); self.model_box.addItems(MODELS)
         self.model_box.currentTextChanged.connect(self._select_model)
-        # Runtime A/B selector: "auto" = per-model measured default
-        # (supports_vllm); an explicit choice overrides it so both serving
-        # paths can be speed-compared on ANY model, including pinned ones.
-        self.runtime_box = QComboBox(); self.runtime_box.addItems(["auto", "vllm-mlx", "mlx-vlm"])
+        # Runtime selector, delegate-first: "auto" = per-model measured default;
+        # GPU · vLLM-MLX / GPU · MLX-VLM A/B the VLM serving paths; the CPU
+        # runtimes (PyTorch/ONNX/NCNN) swap the model list to the trained YOLO
+        # gesture detectors so delegates can be compared on the same weights.
+        self.runtime_box = QComboBox(); self.runtime_box.addItems(RUNTIMES)
         self.runtime_box.setToolTip(
-            "Serving runtime for the selected VLM. auto = the model's measured default; "
-            "vllm-mlx = server tier (fast, but some models misbehave); mlx-vlm = direct "
-            "in-process. Changing this reloads the model."
+            "Delegate · runtime. auto = each VLM's measured default; the GPU entries "
+            "A/B the two MLX serving paths (changing one reloads the model); the CPU "
+            "entries (PyTorch/ONNX/NCNN) list the trained YOLO gesture detectors — "
+            "the Orion O6 / Mali rehearsal path."
         )
         self.runtime_box.currentTextChanged.connect(self._select_runtime)
+        # Full names must be readable: grow both dropdowns to their contents and
+        # keep a generous floor so long checkpoint titles never clip.
+        for box, floor in ((self.runtime_box, 250), (self.model_box, 300)):
+            box.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContents)
+            box.setMinimumWidth(floor)
+        self._yolo_models: dict[str, str] = {}   # dropdown title -> weights path (CPU runtimes)
+        self._svm_models: dict[str, str] = {}    # dropdown title -> model path (CPU · MediaPipe SVM)
         # Camera input size for ALL VLMs. Prefill (image tokens) dominates
         # request_ms, so this is the single biggest speed knob: measured on
         # Qwen3.5-2B, 336px was ~19% faster than 448 with a BETTER gesture
@@ -505,6 +586,23 @@ class PaveConsole(QWidget):
             "prefill. auto = per-model default; explicit sizes apply to every model."
         )
         self.input_px_box.currentTextChanged.connect(self._select_input_px)
+        # Detector tick (how often a camera frame goes to YOLO / MediaPipe-SVM)
+        # and the mock adapter's per-command settle time (the "command cycle").
+        # Both are live-adjustable; the command cycle restarts the daemon.
+        self.tick_box = QSpinBox()
+        self.tick_box.setRange(16, 1000); self.tick_box.setSingleStep(10)
+        self.tick_box.setValue(YOLO_INTERVAL_MS); self.tick_box.setSuffix(" ms")
+        self.tick_box.setToolTip("Gesture detector tick: how often a camera frame is sent to the "
+                                 "CPU gesture model (YOLO / MediaPipe SVM). 33 ms ≈ 30 fps.")
+        self.tick_box.valueChanged.connect(self._select_tick_ms)
+        self.cmd_ms_box = QSpinBox()
+        self.cmd_ms_box.setRange(0, 2000); self.cmd_ms_box.setSingleStep(50)
+        self.cmd_ms_box.setValue(int(os.environ.get("MOCK_ADAPTER_SETTLE_MS", "300")))
+        self.cmd_ms_box.setSuffix(" ms")
+        self.cmd_ms_box.setToolTip("Mock adapter command cycle: settle time per executed command. "
+                                   "Lower = faster held-gesture turning. Changing it restarts the "
+                                   "control daemon (~1s).")
+        self.cmd_ms_box.valueChanged.connect(self._select_cmd_ms)
         self.status_label = QLabel("")   # live: [state] intent + dims + ms
         self.status_label.setStyleSheet("color:#555555; font-family:Menlo,monospace;")
         self.disk_label = QLabel("")     # "n GB free", right-aligned
@@ -514,11 +612,13 @@ class PaveConsole(QWidget):
         self.head_label = QLabel(""); self.mode_label = QLabel("")
         self.dl_label = QLabel(""); self.endpoint_label = QLabel("endpoint: —")
         row2 = self._row()
-        row2.addWidget(QLabel("Model:")); row2.addWidget(self.model_box)
         row2.addWidget(QLabel("Runtime:")); row2.addWidget(self.runtime_box)
+        row2.addWidget(QLabel("Model:")); row2.addWidget(self.model_box)
         row2.addWidget(self.status_label)
         row2.addStretch()
         row2.addWidget(QLabel("Input px:")); row2.addWidget(self.input_px_box)
+        row2.addWidget(QLabel("Tick:")); row2.addWidget(self.tick_box)
+        row2.addWidget(QLabel("Cmd:")); row2.addWidget(self.cmd_ms_box)
         row2.addWidget(self.disk_label)
 
         # Row 3 — runtime
@@ -564,17 +664,31 @@ class PaveConsole(QWidget):
         self.falcon_task_box.addItems(["Detection", "Segmentation"])  # fast 300M boxes / 1.5B boxes+masks
         self.falcon_task_box.currentTextChanged.connect(self._falcon_set_task)
         self.falcon_status = QLabel("")
-        self.falcon_status.setStyleSheet("color:#9ad; font-family:Menlo,monospace;")
+        self.falcon_status.setFixedWidth(250)    # streaming chip: geometry never moves
+        # ── LABEL COLOUR POLICY (user directive, 2026-07-12) ─────────────────
+        # COLOURED TEXT LABELS ARE FORBIDDEN unless the user explicitly asks
+        # for one. Status labels use the platform's DEFAULT text colour; the
+        # only permitted colour is on dark surfaces the user signed off on
+        # (console, camera view). Do not "helpfully" colour-code new labels.
+        self.falcon_status.setStyleSheet("font-family:Menlo,monospace;")
         self.yolo_chk = QCheckBox("YOLO gestures")
         self.yolo_chk.setToolTip("Fine-tuned YOLO-nano gesture detector (train/HaGRID.sh). "
                                  "Single-digit-ms on CPU — the Orion O6 / Mali candidate. "
                                  "Newest train/runs/*/weights/best.pt; PAVE_YOLO_MODEL overrides.")
         self.yolo_chk.toggled.connect(self._toggle_yolo)
         self.yolo_status = QLabel("")
-        self.yolo_status.setStyleSheet("color:#9d9; font-family:Menlo,monospace;")
+        self.yolo_status.setStyleSheet("font-family:Menlo,monospace;")
+        self.yolo_status.setFixedWidth(250)      # streaming chip: geometry never moves
+        # No checkbox for the SVM: it is toggled by choosing the CPU · MediaPipe
+        # SVM runtime + model from the dropdowns. Fixed width so the live text
+        # ("SVM: TROT ×1 · 4ms CPU") never reflows the row as it updates.
+        self.svm_status = QLabel("")
+        self.svm_status.setStyleSheet("font-family:Menlo,monospace;")
+        self.svm_status.setFixedWidth(290)
         falcon_bar = self._row()
         falcon_bar.addWidget(self.yolo_chk)
         falcon_bar.addWidget(self.yolo_status)
+        falcon_bar.addWidget(self.svm_status)
         falcon_bar.addWidget(self.falcon_chk)
         falcon_bar.addWidget(QLabel("query:")); falcon_bar.addWidget(self.falcon_query_edit)
         falcon_bar.addWidget(QLabel("task:")); falcon_bar.addWidget(self.falcon_task_box)
@@ -583,10 +697,15 @@ class PaveConsole(QWidget):
         # Column 1 — Falcon controls, camera preview (annotated), prompt probes
         self.camera_view = QLabel("camera preview", alignment=Qt.AlignmentFlag.AlignCenter)
         self.camera_view.setMinimumSize(360, 240)
+        # Ignored size policy breaks the pixmap->sizeHint->layout->pixmap
+        # feedback loop: the LAYOUT owns this widget's size, so drawing or
+        # clearing detection boxes (or any neighbouring label changing) can
+        # never resize the webcam view. Monitoring stays rock steady.
+        self.camera_view.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Ignored)
         self.camera_view.setStyleSheet("background:#0c0e10; color:#789; border:1px solid rgba(255,255,255,0.12);")
         self.prompt_status = QLabel("Prompt probes: load a VLM, then click a button to drive intent_ingress -> mock adapter.")
         self.prompt_status.setWordWrap(True)
-        self.prompt_status.setStyleSheet("color:#9fb6a0; font-family:Menlo,monospace;")
+        self.prompt_status.setStyleSheet("font-family:Menlo,monospace;")  # label colour policy: default text colour
         prompt_rows = QVBoxLayout(); prompt_rows.setContentsMargins(0, 0, 0, 0); prompt_rows.setSpacing(4)
         prompt_row = self._row()
         self.prompt_buttons: list[QPushButton] = []
@@ -874,11 +993,25 @@ class PaveConsole(QWidget):
         self._set_model_backend(name)
 
     def _select_model(self, name: str) -> None:
+        if name in self._yolo_models:            # CPU delegate: a YOLO artifact
+            self._activate_yolo_model(name)
+            return
+        if name in self._svm_models:             # CPU delegate: MediaPipe+SVM
+            self._activate_svm_model(name)
+            return
         key = MODEL_BACKEND.get(name, "qwen")
         self.head_label.setText(f"head: {head_status(key)}")
         self.mode_label.setText(f"backend: {backend_mode_hint(key)}")
         if self._ui_ready:  # only user-initiated changes reload the model
             self._set_model_backend(name)
+
+    def _populate_model_box(self, names: list[str]) -> None:
+        """Swap the model dropdown's population (runtime filtering) without the
+        change signals firing for every intermediate state."""
+        self.model_box.blockSignals(True)
+        self.model_box.clear()
+        self.model_box.addItems(names)
+        self.model_box.blockSignals(False)
 
     def _select_input_px(self, choice: str) -> None:
         """Apply the camera input size to all subsequent VLM frames (no reload)."""
@@ -886,16 +1019,128 @@ class PaveConsole(QWidget):
         perception.set_input_size_override(px)
         self._log(f"VLM input size -> {choice} (applies from the next frame)")
 
+    def _tick_ms(self) -> int:
+        return self.tick_box.value()
+
+    def _select_tick_ms(self, ms: int) -> None:
+        """Retime the running gesture-detector timers in place."""
+        for timer in (self.yolo_timer, self.svm_timer):
+            if timer.isActive():
+                timer.start(ms)
+        self._log(f"detector tick -> {ms} ms")
+
+    def _select_cmd_ms(self, ms: int) -> None:
+        """Apply the mock adapter's command cycle: env for future spawns, then
+        bounce the daemon so it takes effect now (~1s; ingress is untouched)."""
+        os.environ["MOCK_ADAPTER_SETTLE_MS"] = str(ms)
+        if "daemon" in self.procs:
+            self._kill("daemon")
+            self._spawn("daemon", ["-m", "control_daemon.daemon"])
+            self._log(f"command cycle -> {ms} ms; control daemon restarted")
+
     def _select_runtime(self, choice: str) -> None:
-        """Runtime A/B: apply the override and reload the current VLM with it."""
+        """Delegate/runtime switch. GPU (and auto): the MLX model list, with the
+        vllm-mlx/mlx-vlm override applied and the current VLM reloaded. CPU:
+        the model list becomes the trained YOLO artifacts for that runtime."""
+        key = RUNTIME_KEYS.get(choice, "auto")
+        if key in CPU_RUNTIME_KEYS:
+            if key == "svm":
+                self._svm_models = perception.discover_svm_models()
+                self._yolo_models = {}
+                models, hint = self._svm_models, "run .venv/bin/python train/mediapipe_svm.py"
+            elif key == "tiny":
+                self._svm_models = perception.discover_tiny_models()
+                self._yolo_models = {}
+                models, hint = self._svm_models, "run .venv/bin/python train/tiny_gesture.py train"
+            elif key == "monty":
+                self._svm_models = perception.discover_monty_models()
+                self._yolo_models = {}
+                models, hint = (self._svm_models,
+                                "run: cd train && ../.venv/bin/python -m monty_lab.runner learn --task gestures")
+            elif key == "landmarks":
+                self._svm_models = perception.discover_landmarker_models()
+                self._yolo_models = {}
+                models, hint = self._svm_models, "run ./train/landmark-tower.sh train"
+            elif key == "landmark-monty":
+                self._svm_models = perception.discover_landmarker_monty_models()
+                self._yolo_models = {}
+                models, hint = (self._svm_models,
+                                "train the landmark tower and Monty gesture evidence artifacts")
+            else:
+                self._yolo_models = perception.discover_yolo_models(key)
+                self._svm_models = {}
+                models, hint = self._yolo_models, "run ./train/HaGRID.sh all"
+            if not models:
+                self._populate_model_box([f"no trained model — {hint}"])
+                self._log(f"runtime -> {choice}: nothing under train/runs ({hint})")
+                return
+            if self.engine_handle is not None:
+                self._set_model_backend("No model")   # free the VLM: CPU delegate owns this test
+            self._populate_model_box(list(models))
+            self._log(f"runtime -> {choice}: {len(models)} artifact(s)")
+            self._select_model(self.model_box.currentText())
+            return
+
         from pave_mlx.backends import set_runtime_override
 
-        set_runtime_override(choice)
+        self._yolo_models = {}
+        self._svm_models = {}
+        if self.model_box.currentText() not in MODELS:    # coming back from CPU
+            self._populate_model_box(MODELS)
+            if self.yolo_enabled:
+                self.yolo_chk.setChecked(False)           # triggers _toggle_yolo teardown
+            if self.svm_enabled:
+                self._set_svm_active(False)
+        set_runtime_override(key)
         name = self.model_box.currentText()
         if not self._ui_ready or name not in perception.VLM_MODELS:
             return  # takes effect on the next VLM load
         self._log(f"runtime -> {choice}; reloading {name}")
         self._set_model_backend(name)
+
+    def _refresh_landmark_monty_artifacts(self) -> None:
+        """Hot-discover completed Monty runs and load the newest new artifact."""
+        if RUNTIME_KEYS.get(self.runtime_box.currentText()) != "landmark-monty":
+            return
+        models = perception.discover_landmarker_monty_models()
+        if not models or models == self._svm_models:
+            return
+        previous_paths = set(self._svm_models.values())
+        new_paths = set(models.values()) - previous_paths
+        current_path = self._svm_models.get(self.model_box.currentText())
+        self._svm_models = models
+        names = list(models)
+        target = next(
+            (title for title, path in models.items() if path in new_paths),
+            next(
+                (title for title, path in models.items() if path == current_path),
+                names[0],
+            ),
+        )
+        self._populate_model_box(names)
+        self.model_box.blockSignals(True)
+        self.model_box.setCurrentText(target)
+        self.model_box.blockSignals(False)
+        self._select_model(target)
+        self._log(
+            f"landmark+monty artifacts refreshed: {len(models)} run(s); "
+            f"selected {target}"
+        )
+
+    def _activate_yolo_model(self, title: str) -> None:
+        """Point the gesture detector at the chosen artifact and (re)start it."""
+        weights = self._yolo_models.get(title)
+        if not weights:
+            return
+        if self.svm_enabled:
+            self._set_svm_active(False)          # one CPU gesture model at a time
+        self._yolo_weights_override = weights
+        self._teardown_yolo()
+        if not self.yolo_chk.isChecked():
+            self.yolo_chk.setChecked(True)                # triggers _toggle_yolo -> worker
+        else:
+            self._toggle_yolo(True)
+        self._log(f"gesture model -> {title} ({weights})")
 
     def _set_model_backend(self, name: str) -> None:
         """Load the selected model IN-PROCESS (no subprocess shim → a multi-GB VLM
@@ -1118,7 +1363,9 @@ class PaveConsole(QWidget):
             if self.falcon_enabled and self.falcon_worker is not None:
                 self.falcon_timer.start(FALCON_INTERVAL_MS)
             if self.yolo_enabled and self.yolo_worker is not None:
-                self.yolo_timer.start(YOLO_INTERVAL_MS)
+                self.yolo_timer.start(self._tick_ms())
+            if self.svm_enabled and self.svm_worker is not None:
+                self.svm_timer.start(self._tick_ms())
 
     def _tick(self) -> None:
         if self.cap is None:
@@ -1159,6 +1406,8 @@ class PaveConsole(QWidget):
             paint_dets.extend(self.falcon_dets)
         if self.yolo_enabled and self.yolo_dets:
             paint_dets.extend(self.yolo_dets)
+        if self.svm_enabled and self.svm_dets:
+            paint_dets.extend(self.svm_dets)
         if self._features:                               # VLM self-report (list[Detection])
             paint_dets.extend(self._features)
         if paint_dets:
@@ -1186,6 +1435,8 @@ class PaveConsole(QWidget):
         # detector, not the selected model's dense-feature heatmap.
         if self.falcon_enabled and self.falcon_dets:
             perception.draw_falcon_masks(frame, self.falcon_dets)
+        if self.svm_enabled and self.svm_hands:
+            perception.draw_hand_skeleton(frame, self.svm_hands)  # classic MediaPipe look
         if not self.overlay_on:
             return frame
         if self._overlay_rgba is not None:               # the model's dense features
@@ -1292,7 +1543,8 @@ class PaveConsole(QWidget):
         self.falcon_dets = list(dets or [])          # list[perception.Detection]
         self.falcon_last_query = query
         self.falcon_last_s = dt
-        self.falcon_status.setText(f"Falcon: {query} ×{len(self.falcon_dets)} ({task}) · {dt:.1f}s")
+        self.falcon_status.setText(
+            status_chip("FALC:", query or "-", len(self.falcon_dets), dt * 1000.0))
 
     def _falcon_tick(self) -> None:
         """Submit the current frame to the Falcon detector, one job at a time."""
@@ -1307,7 +1559,7 @@ class PaveConsole(QWidget):
     def _toggle_yolo(self, on: bool) -> None:
         self.yolo_enabled = on
         if on:
-            weights = perception.default_yolo_weights()
+            weights = self._yolo_weights_override or perception.default_yolo_weights()
             if not weights:
                 self.yolo_enabled = False
                 self.yolo_chk.blockSignals(True)
@@ -1318,7 +1570,7 @@ class PaveConsole(QWidget):
                 return
             self._ensure_yolo_worker(weights)
             if self.cap is not None:
-                self.yolo_timer.start(YOLO_INTERVAL_MS)
+                self.yolo_timer.start(self._tick_ms())
             self._log(f"yolo on ({weights})")
         else:
             self._teardown_yolo()
@@ -1348,8 +1600,58 @@ class PaveConsole(QWidget):
         self.yolo_dets = list(dets or [])
         self.yolo_intent = intent
         self.yolo_status.setText(
-            f"YOLO: {intent or 'no gesture'} ×{len(self.yolo_dets)} · {ms:.0f}ms CPU"
+            status_chip("YOLO:", intent or "watching", len(self.yolo_dets), ms)
         )
+        self._post_yolo_intent(intent)
+
+    def _stable_intent(self, intent: str) -> str:
+        """Debounce detector intents: only an intent seen on INTENT_STABLE_FRAMES
+        consecutive detector results is allowed through; "" (no gesture) resets.
+        A held gesture keeps satisfying the streak, so held-turn repeats still flow."""
+        last, n = self._intent_streak
+        n = n + 1 if intent == last else 1
+        self._intent_streak = (intent, n)
+        return intent if n >= INTENT_STABLE_FRAMES else ""
+
+    def _post_yolo_intent(self, intent: str) -> None:
+        """Forward a detected gesture to intent_ingress -> control daemon, through
+        the SAME safety gates as the VLM path: Idle posts nothing, TROT needs
+        confirmation, and a held gesture can't flood the daemon (idempotency).
+        UP/DOWN are shown in the overlay but not posted (not in intent_schema)."""
+        intent = self._stable_intent(intent)
+        raw_last, raw_n = self._intent_streak
+        if intent in ("LEFT", "RIGHT"):
+            if self._turn_latch and intent != self._turn_latch:
+                return                           # never flip-flop: release the point first
+            self._turn_latch = intent
+        elif intent or (raw_last == "" and raw_n >= INTENT_STABLE_FRAMES):
+            # a stable non-turn outcome (STOP/TROT/HOME, or a held no-gesture)
+            # is the RELEASE that re-arms direction choice
+            self._turn_latch = ""
+        if not intent or intent not in YOLO_POSTABLE_INTENTS:
+            return
+        if self.source_box.currentText() == "Idle":
+            return                                   # Idle sends NOTHING, same as the VLM path
+        if not self._gate_trot(intent):
+            return                                   # TROT awaiting its confirmation streak
+        if intent in ("LEFT", "RIGHT"):
+            # Held pointing = continuous turning: each MOVE is a deliberate ~5°
+            # nudge (intent_schema), so repeats are the FEATURE, not a flood.
+            # Only one command in flight at a time; the daemon's completion is
+            # the natural rate limiter (~3 nudges/s on the mock adapter).
+            if self._action_in_flight():
+                return
+        elif intent == self._last_camera_posted_intent:
+            elapsed_ms = (time.time() - self._last_camera_posted_at) * 1000.0
+            if self._action_in_flight() or elapsed_ms < CAMERA_INTENT_REPEAT_MS:
+                return
+        self._pending_intent = intent
+        self._pending_since = time.time()
+        self._last_camera_posted_intent = intent
+        self._last_camera_posted_at = self._pending_since
+        self._log(f"[yolo] gesture -> {intent} -> intent_ingress")
+        threading.Thread(target=self._post_intent,
+                         args=({"text": intent, "source": "camera-yolo"},), daemon=True).start()
 
     def _yolo_tick(self) -> None:
         """Submit the current frame to the gesture detector, one job at a time."""
@@ -1377,6 +1679,130 @@ class PaveConsole(QWidget):
             if w.isRunning():
                 w.wait(3000)
             self.yolo_worker = None
+
+    # ── MediaPipe-landmark SVM (train/mediapipe_svm.py) ──────────────
+    # No checkbox: choosing the CPU · MediaPipe SVM runtime (and model) in the
+    # dropdowns IS the toggle; picking any other runtime/model switches it off.
+    def _activate_svm_model(self, title: str) -> None:
+        model = self._svm_models.get(title)
+        if not model:
+            return
+        if self.yolo_enabled:
+            self.yolo_chk.setChecked(False)      # one CPU gesture model at a time
+        self._set_svm_active(False)
+        self.svm_enabled = True
+        self._ensure_svm_worker(model, title)
+        if self.cap is not None:
+            self.svm_timer.start(self._tick_ms())
+        self._log(f"gesture model -> {title} ({model})")
+
+    def _set_svm_active(self, on: bool) -> None:
+        if on:                                   # activation goes through _activate_svm_model
+            return
+        self.svm_enabled = False
+        self._teardown_svm()
+        self.svm_status.setText("")
+
+    def _ensure_svm_worker(self, model_path: str, title: str = "") -> None:
+        if self.svm_worker is not None:
+            return
+        self.svm_status.setText("loading gesture model…")
+        # the distilled tiny net shares the SVM slot/signals; only the worker
+        # class differs (chosen by which run directory the artifact lives in)
+        if title.startswith("hanco-crop"):
+            cls = perception.HanCoCropGestureWorker
+        elif title.startswith("hanco-gestures"):
+            cls = perception.HanCoGestureWorker
+        elif title.startswith("hanco-target"):
+            cls = perception.HanCoTargetWorker
+        elif title.startswith("landmark+monty"):
+            cls = perception.LandmarkerMontyWorker
+        elif "tiny_gesture" in model_path or "landmark_tower" in model_path:
+            cls = perception.TinyGestureWorker
+        else:
+            cls = perception.MediaPipeSvmWorker
+        w = cls(model_path)
+        w.progress.connect(self.svm_status.setText)
+        w.ready.connect(lambda s: (self.svm_status.setText(s), self._log(f"svm ready: {s}")))
+        w.failed.connect(self._on_svm_failed)
+        w.results_ready.connect(self._on_svm_results)
+        w.start()
+        self.svm_worker = w
+
+    def _on_svm_failed(self, msg: str) -> None:
+        self.svm_timer.stop()
+        self._svm_busy = False
+        self.svm_status.setText(f"SVM unavailable: {msg}")
+        self._log(f"svm load failed: {msg}")
+
+    def _on_svm_results(self, dets, intent: str, timing, hands) -> None:
+        self._svm_busy = False
+        self.svm_dets = list(dets or [])
+        self.svm_hands = list(hands or [])
+        self.svm_intent = intent
+        t = timing if isinstance(timing, dict) else {}
+        prefix = getattr(self.svm_worker, "STATUS_PREFIX", "SVM") + ":"
+        if t.get("gated"):
+            # landmark CNN skipped: a 32x32 frame-diff (~0.1ms) is standing watch
+            self.svm_status.setText(status_chip(prefix, "idle", 0, 0.1))
+        else:
+            # ms field = the network (landmarker or distilled net); µs = the SVM
+            self.svm_status.setText(status_chip(
+                prefix, intent or "watching", len(self.svm_dets),
+                t.get("lm_ms", 0.0), t.get("svm_us", 0.0)))
+        # The visualiser already renders observation.json through renderSpeech().
+        # Reuse that contract instead of introducing a second PyQt→JavaScript
+        # bridge.  Change-only publishing keeps the 10 Hz detector from turning
+        # the state-server SSE stream into a 10 Hz duplicate-message stream.
+        label = self.svm_dets[0].label if self.svm_dets else ""
+        sig = (bool(self.svm_hands), intent, label)
+        if sig != self._svm_observation_sig:
+            self._svm_observation_sig = sig
+            if self.svm_hands:
+                text = (f"Hand gesture detected: {intent}."
+                        if intent else f"Hand detected; classifier {label}.")
+                if prefix.startswith("LMNT"):
+                    source = "Landmarker Tower + Monty"
+                elif prefix.startswith("LAND"):
+                    source = "Landmarker Tower"
+                elif prefix.startswith("MNTY"):
+                    source = "Monty · 3D evidence"
+                else:
+                    source = "MediaPipe · RBF-SVM"
+                self._publish_observation(text, source, hold=True)
+            else:
+                self._publish_observation("", "", hold=False)
+        self._post_yolo_intent(intent)           # same gates: Idle, TROT streak, held-turn
+
+    def _svm_tick(self) -> None:
+        if not self.svm_enabled or self.current_frame is None or cv2 is None:
+            return
+        if self.svm_worker is None or self._svm_busy:
+            return
+        self._svm_busy = True
+        self.svm_worker.submit(self.current_frame.copy())
+
+    def _teardown_svm(self) -> None:
+        if getattr(self, "svm_timer", None) is not None:
+            self.svm_timer.stop()
+        self._svm_busy = False
+        self.svm_dets = []
+        self.svm_hands = []
+        self.svm_intent = ""
+        if self._svm_observation_sig is not None:
+            self._publish_observation("", "", hold=False)
+        self._svm_observation_sig = None
+        w = self.svm_worker
+        if w is not None:
+            for sig in (w.progress, w.ready, w.failed, w.results_ready):
+                try:
+                    sig.disconnect()
+                except Exception:
+                    pass
+            w.stop()
+            if w.isRunning():
+                w.wait(3000)
+            self.svm_worker = None
 
     def _draw_detections(self, painter: QPainter, sw: int, sh: int, dets: list) -> None:
         """Paint annotated bounding boxes + labels onto the already-scaled pixmap
@@ -1766,7 +2192,10 @@ class PaveConsole(QWidget):
 
     # ── control plane orchestration ─────────────────────────────────
     def _proc_env(self) -> QProcessEnvironment:
-        env = QProcessEnvironment.systemEnvironment(); env.insert("PYTHONUNBUFFERED", "1"); return env
+        env = QProcessEnvironment.systemEnvironment(); env.insert("PYTHONUNBUFFERED", "1")
+        if hasattr(self, "cmd_ms_box"):
+            env.insert("MOCK_ADAPTER_SETTLE_MS", str(self.cmd_ms_box.value()))
+        return env
 
     def _spawn(self, name: str, args: list[str]) -> None:
         proc = QProcess(self)
@@ -1833,6 +2262,7 @@ class PaveConsole(QWidget):
             self.cap = None
         self._teardown_falcon()
         self._teardown_yolo()
+        self._teardown_svm()
         self._teardown_engine()
         for name in list(self.procs):
             self._kill(name)

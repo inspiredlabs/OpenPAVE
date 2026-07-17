@@ -45,7 +45,7 @@ class IntentIngressTests(unittest.TestCase):
         self.assertEqual(body["written"], written)
         self.assertEqual(written["schema_version"], "0.1")
         self.assertEqual(written["intent"], "MOVE")
-        self.assertEqual(written["params"], {"vx": 0.0, "yaw": 0.6, "duration_ms": 600})
+        self.assertEqual(written["params"], {"vx": 0.0, "yaw": 0.29, "duration_ms": 300})
         self.assertEqual(written["source"], "webui")
         self.assertEqual(written["confidence"], 0.75)
         self.assertEqual(written["raw_text"], "RIGHT")

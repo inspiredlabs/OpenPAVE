@@ -1,5 +1,9 @@
 # OpenPAVE: Open Physical-AI VLA Experimentation
 
+[![Realtime Physical AI Safety Ingress](https://i.ytimg.com/vi/hEJPN_SKwTk/hq720.jpg)](https://www.youtube.com/watch?v=hEJPN_SKwTk)
+
+> Here Scott Phillips demos **OpenPAVE** using an AI trained on hand gestures to control the robot. It uses a custom AI similar to `Mediapipe` on an Arm CPU (not Apple Silicon GPU). The gesture control passes the data to the safety ingress at ~500us. Yes. You read that correctly, that's 1/2 of 1ms. Scott is making the architecture scale by dropping "experts" out of the mixture when not required, delivering a +100x speed boost from using a VLM (see my other work with Qwen2-2B at ~400ms per tick).
+
 ## A developer-friendly open edge workflow for local VLA experimentation on Arm computing platforms
 
 OpenPAVE is a local-first, cloud-free reference workflow for validating Physical AI experiments across ROS2 robot/sensor endpoints, Arm-based edge inference nodes, VLM/VLA reasoning, adapter-based runtime control, and observability tooling.
@@ -100,13 +104,13 @@ OpenPAVE currently consists of three replaceable roles:
 
 ### High-level flow
 
-ROS2 robot/sensor stream  
-→ edge-side VLA / VLM inference  
-→ OpenPAVE UI / observability  
-→ intent schema  
-→ runtime control daemon  
-→ robot adapter  
-→ ROS2 command interface  
+ROS2 robot/sensor stream
+→ edge-side VLA / VLM inference
+→ OpenPAVE UI / observability
+→ intent schema
+→ runtime control daemon
+→ robot adapter
+→ ROS2 command interface
 → command result and robot/sensor state feedback
 
 ## Development environment

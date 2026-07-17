@@ -1,0 +1,21 @@
+/* repomix-ignore-start */
+
+# integrate later:
+/avbd/*
+avbd
+/xpbd/*
+xpbd
+
+# temporarily ignore this sophisticated feature:
+/extra/
+teleNoise.js
+TeleNoiseControls.svelte
+mediapipeVisionHands.js
+MediaPipeHands.svelte
+CameraControls.svelte
+CopyJSON.svelte
+aspectRatioCamera.js
+SoftBody.svelte
+
+# nb: perplexity.ai/search/i-am-in-a-git-repo-and-i-ve-in-IktLd18aRDayrd5Oh7VLgg
+# nb: perplexity.ai/search/i-want-to-use-the-repomix-expr-B0erhsrITv.UPiG468412w

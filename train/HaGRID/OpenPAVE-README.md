@@ -22,6 +22,14 @@ here. It is disposable: delete `images/`, `labels/`, `data.yaml` and
   (whole image + bboxes, 90°/180°/270°). Rotated frames look odd (sideways
   people) — good enough to prove the direction; replace with real captured
   point data when accuracy matters.
+- Real pointing data: images from `train/crude/{left,right}-finger-point/`
+  are folded in (`--extra`), auto-annotated by the newest trained model, and
+  each is ALSO added horizontally mirrored with the opposite label
+  (`--mirror-pairs point_left:point_right`). Training runs with `fliplr=0.0`
+  because ultralytics' default label-blind random flip corrupts directional
+  classes. (Checked 2026-07: the IAPR TC4 gesture-dataset index has no
+  direction-labelled pointing set; HaGRIDv2's `point` class is unlabelled for
+  direction. Growing `train/crude/` with your own captures is the best lever.)
 - Size: capped per class (default 300 images, ~15% val split) — deliberately
   small; enough to prove the YOLO-nano-on-Mali direction, not a production
   training set.

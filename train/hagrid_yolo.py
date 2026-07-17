@@ -113,6 +113,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                    help="ultralytics device string; empty = auto (picks mps on Apple Silicon)")
     p.add_argument("--formats", default="onnx,ncnn", help="export formats, comma-separated")
     p.add_argument("--run-name", default="", help="training run name; default derives from model+imgsz")
+    p.add_argument("--extra", default="point_left=train/crude/left-finger-point,"
+                                      "point_right=train/crude/right-finger-point",
+                   help="real-image folders, 'class=dir' comma-separated; hand boxes are "
+                        "auto-annotated with the newest trained model. '' disables.")
+    p.add_argument("--mirror-pairs", default="point_left:point_right",
+                   help="direction pairs to mirror-augment: each extra image is also added "
+                        "horizontally flipped with the OPPOSITE label. '' disables.")
     return p.parse_args(argv)
 
 
@@ -202,6 +209,8 @@ def prepare(args: argparse.Namespace) -> Path:
                 (DATASET_DIR / "labels" / split / f"{name}_{stem}.txt").write_text("\n".join(lines) + "\n")
                 counts[f"{name}/{split}"] += 1
 
+    _add_extra_images(args, names, cls_idx, rng, counts, box_counts)
+
     data_yaml = DATASET_DIR / "data.yaml"
     hints = "\n".join(f"#   {n}: {INTENT_HINTS.get(n, '(custom)')}" for n in names[:-1])
     data_yaml.write_text(
@@ -217,6 +226,64 @@ def prepare(args: argparse.Namespace) -> Path:
     print(f"[prepare] wrote {data_yaml}")
     print(json.dumps(stats, indent=2))
     return data_yaml
+
+
+def _add_extra_images(args, names, cls_idx, rng, counts, box_counts) -> None:
+    """Fold real user-collected images (train/crude/...) into the dataset.
+
+    Boxes are auto-annotated: the newest trained model localises the hand
+    (top box at low conf — localisation is class-agnostic enough for this),
+    and the folder's class name is the label. Each image is also added
+    MIRRORED with the opposite direction label (see --mirror-pairs): a flip
+    turns point_left into a genuine point_right example. This is also why
+    train() sets fliplr=0.0 — ultralytics' default random flip does the same
+    thing WITHOUT swapping the label, which poisons directional classes."""
+    extras = [e for e in args.extra.split(",") if "=" in e]
+    if not extras:
+        return
+    weights = sorted(RUNS_DIR.glob("*/weights/best.pt"), key=lambda p: p.stat().st_mtime)
+    if not weights:
+        print("[prepare] extras skipped: no trained model yet to auto-annotate boxes; "
+              "train once on HaGRID alone, then re-run prepare")
+        return
+    mirror = dict(p.split(":") for p in args.mirror_pairs.split(",") if ":" in p)
+    mirror.update({v: k for k, v in mirror.items()})
+
+    from PIL import Image
+    from ultralytics import YOLO
+    model = YOLO(str(weights[-1]))
+    skipped = 0
+    for spec in extras:
+        cls, folder = (s.strip() for s in spec.split("=", 1))
+        if cls not in cls_idx:
+            print(f"[prepare] extras: class {cls!r} not in --classes; skipping {folder}")
+            continue
+        images = sorted(p for p in Path(folder).glob("*") if p.suffix.lower() in (".jpg", ".jpeg", ".png"))
+        rng.shuffle(images)
+        n_val = max(1, int(len(images) * args.val_frac))
+        for i, src in enumerate(images):
+            res = model.predict(str(src), imgsz=args.imgsz, conf=0.15, verbose=False)[0]
+            if not len(res.boxes):
+                skipped += 1
+                continue
+            x1, y1, x2, y2 = res.boxes.xyxyn[res.boxes.conf.argmax()].tolist()
+            bbox = [x1, y1, x2 - x1, y2 - y1]
+            split = "val" if i < n_val else "train"   # mirrors stay in the SAME split (no leakage)
+            variants = [(cls, bbox, False)]
+            if cls in mirror:
+                variants.append((mirror[cls], [1 - x2, y1, x2 - x1, y2 - y1], True))
+            for vcls, vbox, flipped in variants:
+                stem = f"{vcls}_extra_{src.stem}{'_m' if flipped else ''}"
+                img = Image.open(src).convert("RGB")
+                if flipped:
+                    img = img.transpose(Image.Transpose.FLIP_LEFT_RIGHT)
+                img.save(DATASET_DIR / "images" / split / f"{stem}.jpg", quality=92)
+                (DATASET_DIR / "labels" / split / f"{stem}.txt").write_text(
+                    _to_yolo_line(cls_idx[vcls], vbox) + "\n")
+                counts[f"{vcls}(extra)/{split}"] += 1
+                box_counts[vcls] += 1
+    if skipped:
+        print(f"[prepare] extras: {skipped} image(s) skipped (no hand box found)")
 
 
 # ── train / export / bench ───────────────────────────────────────────────────
@@ -247,6 +314,11 @@ def train(args: argparse.Namespace) -> Path:
         exist_ok=True,
         patience=15,
         cache=True,  # dataset is tiny; keeping it in RAM removes the I/O tax per epoch
+        # CRITICAL for directional classes: ultralytics' default fliplr=0.5
+        # mirrors images WITHOUT swapping labels, so half the point_left
+        # examples trained as their mirror image — this is what sank LEFT/RIGHT
+        # accuracy. Direction-correct mirroring happens in prepare instead.
+        fliplr=0.0,
     )
     best = Path(results.save_dir) / "weights" / "best.pt"
     print(f"[train] best weights: {best}")

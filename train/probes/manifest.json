@@ -1,0 +1,112 @@
+[
+  {
+    "capability": "gesture.intent",
+    "outcome": "TROT",
+    "file": "gesture.intent/TROT_1.png"
+  },
+  {
+    "capability": "gesture.intent",
+    "outcome": "NOOP",
+    "file": "gesture.intent/NOOP_1.png"
+  },
+  {
+    "capability": "gesture.intent",
+    "outcome": "TROT",
+    "file": "gesture.intent/TROT_2.png"
+  },
+  {
+    "capability": "gesture.intent",
+    "outcome": "LEFT",
+    "file": "gesture.intent/LEFT_1.png"
+  },
+  {
+    "capability": "gesture.intent",
+    "outcome": "STOP",
+    "file": "gesture.intent/STOP_1.png"
+  },
+  {
+    "capability": "gesture.intent",
+    "outcome": "NOOP",
+    "file": "gesture.intent/NOOP_2.png"
+  },
+  {
+    "capability": "gesture.intent",
+    "outcome": "RIGHT",
+    "file": "gesture.intent/RIGHT_1.png"
+  },
+  {
+    "capability": "gesture.intent",
+    "outcome": "NOOP",
+    "file": "gesture.intent/NOOP_3.png"
+  },
+  {
+    "capability": "gesture.intent",
+    "outcome": "RIGHT",
+    "file": "gesture.intent/RIGHT_2.png"
+  },
+  {
+    "capability": "gesture.intent",
+    "outcome": "RIGHT",
+    "file": "gesture.intent/RIGHT_3.png"
+  },
+  {
+    "capability": "gesture.intent",
+    "outcome": "TROT",
+    "file": "gesture.intent/TROT_3.png"
+  },
+  {
+    "capability": "gesture.intent",
+    "outcome": "LEFT",
+    "file": "gesture.intent/LEFT_2.png"
+  },
+  {
+    "capability": "gesture.intent",
+    "outcome": "LEFT",
+    "file": "gesture.intent/LEFT_3.png"
+  },
+  {
+    "capability": "gesture.intent",
+    "outcome": "HOME",
+    "file": "gesture.intent/HOME_1.png"
+  },
+  {
+    "capability": "gesture.intent",
+    "outcome": "HOME",
+    "file": "gesture.intent/HOME_2.png"
+  },
+  {
+    "capability": "gesture.intent",
+    "outcome": "HOME",
+    "file": "gesture.intent/HOME_3.png"
+  },
+  {
+    "capability": "hand.presence",
+    "outcome": "NO",
+    "file": "hand.presence/NO_1.png"
+  },
+  {
+    "capability": "hand.presence",
+    "outcome": "NO",
+    "file": "hand.presence/NO_2.png"
+  },
+  {
+    "capability": "hand.presence",
+    "outcome": "NO",
+    "file": "hand.presence/NO_3.png"
+  },
+  {
+    "capability": "hand.presence",
+    "outcome": "YES",
+    "file": "hand.presence/YES_1.png"
+  },
+  {
+    "capability": "hand.presence",
+    "outcome": "YES",
+    "file": "hand.presence/YES_2.png"
+  },
+  {
+    "capability": "hand.presence",
+    "outcome": "YES",
+    "file": "hand.presence/YES_3.png"
+  }
+]

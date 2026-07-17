@@ -95,10 +95,14 @@ def _intent_from_text(text: str) -> tuple[str, dict[str, Any], bool]:
         return "STOP", {}, False
     if normalized == "HOME":
         return "HOME", {}, False
+    # Small symmetric increments (0.29 rad/s × 300 ms ≈ 5°) so a HELD pointing
+    # gesture repeat-posts into a smooth continuous turn; one gesture flash is
+    # one deliberate nudge. (Previously -0.4/+0.6 × 600 ms: asymmetric ~14°/21°
+    # jumps that read as snaps in the visualiser.)
     if normalized in {"TURN_LEFT", "LEFT"}:
-        return "MOVE", {"vx": 0.0, "yaw": -0.4, "duration_ms": 600}, False
+        return "MOVE", {"vx": 0.0, "yaw": -0.29, "duration_ms": 300}, False
     if normalized in {"TURN_RIGHT", "RIGHT"}:
-        return "MOVE", {"vx": 0.0, "yaw": 0.6, "duration_ms": 600}, False
+        return "MOVE", {"vx": 0.0, "yaw": 0.29, "duration_ms": 300}, False
 
     return "STOP", {}, True
 

@@ -1,0 +1,49 @@
+{
+  "schema_version": 1,
+  "specialists": {
+    "presence": {
+      "feature_extractor": "contour_v1",
+      "feature_count": 10,
+      "classes": ["absent", "present"],
+      "C": 8.0,
+      "gamma": "scale",
+      "mlx_epochs": 300,
+      "mlx_learning_rate": 0.03,
+      "max_support_vectors": 256,
+      "accept_margin": 0.25
+    },
+    "motion": {
+      "feature_extractor": "track_v1",
+      "feature_count": 12,
+      "classes": ["still", "left", "right", "up", "down"],
+      "C": 10.0,
+      "gamma": "scale",
+      "mlx_epochs": 300,
+      "mlx_learning_rate": 0.005,
+      "max_support_vectors": 384,
+      "accept_margin": 0.0
+    },
+    "color": {
+      "feature_extractor": "hsv_hist_v1",
+      "feature_count": 12,
+      "classes": ["unknown", "black", "white", "red", "green", "blue"],
+      "C": 12.0,
+      "gamma": "scale",
+      "mlx_epochs": 300,
+      "mlx_learning_rate": 0.03,
+      "max_support_vectors": 384,
+      "accept_margin": 0.2
+    },
+    "gesture": {
+      "feature_extractor": "mediapipe_hand_v1",
+      "feature_count": 63,
+      "classes": ["fist", "like", "point_down", "point_left", "point_right", "point_up"],
+      "C": 10.0,
+      "gamma": "scale",
+      "mlx_epochs": 300,
+      "mlx_learning_rate": 0.02,
+      "max_support_vectors": 512,
+      "accept_margin": 0.25
+    }
+  }
+}

@@ -23,6 +23,15 @@
 #   IMGSZ=256 ./train/HaGRID.sh train
 #   IMGSZ=224 ./train/HaGRID.sh train
 #
+# ── Real directional-pointing data ──────────────────────────────────────────
+# prepare folds in train/crude/{left,right}-finger-point/ automatically:
+# boxes are auto-annotated by the newest trained model, and every image is
+# also added MIRRORED with the opposite label. Drop more real captures into
+# those folders (your webcam, your lighting!) and re-run prepare — that is
+# the single best way to make LEFT/RIGHT robust. Training itself runs with
+# fliplr=0.0: the ultralytics default randomly mirrors frames WITHOUT
+# swapping labels, which silently poisons directional classes.
+#
 # ── Slashing the dataset / pruning classes ──────────────────────────────────
 # The detector only knows the classes you list here; fewer classes = smaller
 # problem. Add real point-left/point-right captures later by extending

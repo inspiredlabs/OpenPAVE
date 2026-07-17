@@ -18,7 +18,7 @@ class IntentSchemaTests(unittest.TestCase):
 
         self.assertEqual(intent["intent"], "MOVE")
         self.assertEqual(intent["raw_text"], "RIGHT")
-        self.assertEqual(intent["params"], {"vx": 0.0, "yaw": 0.6, "duration_ms": 600})
+        self.assertEqual(intent["params"], {"vx": 0.0, "yaw": 0.29, "duration_ms": 300})
 
     def test_legacy_flat_move_normalizes(self):
         intent = normalize_intent_payload(

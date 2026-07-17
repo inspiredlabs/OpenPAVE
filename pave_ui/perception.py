@@ -1465,3 +1465,1083 @@ class YoloGestureWorker(QThread):
                 traceback.print_exc()
                 continue
             self.detections_ready.emit(dets, intent, ms)
+
+
+# Known param counts for the nano ladder (fused, from ultralytics summaries);
+# anything unknown shows "?" rather than a wrong number.
+_YOLO_PARAMS = {"yolo26n": "2.4M", "yolo11n": "2.6M", "yolov8n": "3.2M"}
+# runtime key -> (weights artifact inside <run>/weights/, bit depth of that artifact)
+YOLO_RUNTIME_ARTIFACTS = {
+    "pt": ("best.pt", "fp32"),
+    "onnx": ("best.onnx", "fp32"),
+    "ncnn": ("best_ncnn_model", "fp16"),
+}
+
+
+def discover_yolo_models(runtime: str = "pt") -> dict[str, str]:
+    """Trained gesture detectors under train/runs -> {dropdown title: weights path}.
+
+    Titles follow 'basename · params · detail · bit-depth', e.g.
+    'yolo26n · 2.4M · HaGRID-8c-320px · fp16', so delegates/runtimes can be
+    compared by eye. Only runs whose artifact for `runtime` (pt|onnx|ncnn)
+    exists on disk are listed — export missing ones with ./train/HaGRID.sh export."""
+    artifact, bits = YOLO_RUNTIME_ARTIFACTS[runtime]
+    out: dict[str, str] = {}
+    runs = Path(__file__).resolve().parents[1] / "train" / "runs"
+    for run in sorted(runs.glob("*"), key=lambda p: p.stat().st_mtime, reverse=True):
+        w = run / "weights" / artifact
+        if not w.exists():
+            continue
+        base, detail = run.name, ""
+        try:
+            import yaml
+            args = yaml.safe_load((run / "args.yaml").read_text())
+            base = Path(str(args.get("model", ""))).stem or run.name
+            names = yaml.safe_load(Path(str(args.get("data", ""))).read_text()).get("names", [])
+            detail = f"HaGRID-{len(names)}c-{args.get('imgsz', '?')}px"
+        except Exception:
+            detail = run.name  # still listable when metadata is gone
+        out[f"{base} · {_YOLO_PARAMS.get(base, '?')} · {detail} · {bits}"] = str(w)
+    return out
+
+
+# ── MediaPipe-landmark SVM gesture classifier (train/mediapipe_svm.py) ───────
+# The "traditional" pipeline: MediaPipe hand landmarker (21 points, CPU/TFLite)
+# -> wrist-normalised geometry -> RBF-SVM. Classifies SHAPE+ORIENTATION from
+# landmarks, so the user's lighting/background are normalised away — the crude
+# GIF captures ARE its training domain. Same CPU-only rationale as YOLO.
+
+# SHAPE classes only. `point` is intentionally absent: a confident point is
+# resolved by index-finger geometry (train.mediapipe_svm.point_direction) into
+# LEFT / RIGHT / vertical-no-op — direction is an angle, not a cluster.
+SVM_CLASS_TO_INTENT = {
+    "stop": "STOP",           # open palm -> stop trotting
+    "fist": "HOME",           # fist -> return to origin pose (rotation + position tween)
+    "like": "TROT",           # thumbs-up -> trot / keep trotting
+}
+SVM_CONF_MIN = float(os.environ.get("PAVE_SVM_CONF", "0.5"))  # deliberately hard to trigger
+# Landmarker gates, raised from MediaPipe's defaults because a face at low
+# detection confidence is the classic hand false-positive — it then classifies
+# as a random gesture and (worst case) posts a MOVE that kills a running trot.
+SVM_DET_CONF = float(os.environ.get("PAVE_SVM_DET_CONF", "0.65"))
+SVM_PRESENCE_CONF = float(os.environ.get("PAVE_SVM_PRESENCE_CONF", "0.60"))
+SVM_TRACK_CONF = float(os.environ.get("PAVE_SVM_TRACK_CONF", "0.60"))
+# Frames wider than this are downscaled before landmarking (aspect kept;
+# normalised landmark coords are unaffected). The landmark CNN dominates the
+# cost, so this mostly trims the colour-convert/resize preamble.
+SVM_MAX_DIM = int(os.environ.get("PAVE_SVM_MAX_DIM", "384"))
+# Idle gate: after SVM_IDLE_AFTER consecutive no-hand results, a static scene
+# skips the landmark CNN entirely (a 32x32 grey frame-diff, ~0.1ms, stands
+# watch). Any real motion — a hand entering frame — trips the delta and wakes
+# the full pipeline on the same tick. This is what keeps average CPU load
+# near zero while nobody is gesturing; per-frame latency was never the load.
+SVM_IDLE_AFTER = int(os.environ.get("PAVE_SVM_IDLE_AFTER", "3"))
+SVM_WAKE_DELTA = float(os.environ.get("PAVE_SVM_WAKE_DELTA", "3.0"))
+_SVM_RUN_DIR = Path(__file__).resolve().parents[1] / "train" / "runs" / "mediapipe_svm"
+_HAND_LANDMARKER = Path(__file__).resolve().parents[1] / "train" / "weights" / "hand_landmarker.task"
+
+# MediaPipe HAND_CONNECTIONS topology (fixed): thumb, index, middle, ring,
+# pinky chains + palm ring — for the classic skeleton overlay.
+HAND_CONNECTIONS = (
+    (0, 1), (1, 2), (2, 3), (3, 4),          # thumb
+    (0, 5), (5, 6), (6, 7), (7, 8),          # index
+    (5, 9), (9, 10), (10, 11), (11, 12),     # middle
+    (9, 13), (13, 14), (14, 15), (15, 16),   # ring
+    (13, 17), (17, 18), (18, 19), (19, 20),  # pinky
+    (0, 17),                                 # palm base
+)
+
+
+def draw_hand_skeleton(frame_bgr: np.ndarray, hands: list) -> None:
+    """Classic MediaPipe-style overlay: green bone connections under red
+    landmark dots, drawn on the full-res BGR frame (same z-order rule as
+    draw_falcon_masks — boxes/labels go on top in the later QPainter pass)."""
+    if cv2 is None or not hands:
+        return
+    h, w = frame_bgr.shape[:2]
+    for hand in hands:
+        if isinstance(hand, dict) and hand.get("kind") == "sensorimotor_debug":
+            _draw_sensorimotor_debug(frame_bgr, hand)
+            continue
+        finite = [bool(np.isfinite(p).all()) for p in hand]
+        pts = [(int(x * w), int(y * h)) if finite[i] else (0, 0)
+               for i, (x, y) in enumerate(hand)]
+        for a, b in HAND_CONNECTIONS:
+            if finite[a] and finite[b]:
+                cv2.line(frame_bgr, pts[a], pts[b], (48, 255, 48), 2)
+        for index, p in enumerate(pts):
+            if finite[index]:
+                cv2.circle(frame_bgr, p, 4, (48, 48, 255), -1)
+
+
+def _draw_sensorimotor_debug(frame_bgr: np.ndarray, state: dict) -> None:
+    """Draw every stage of the command-suppressed landmark experiment.
+
+    Blue = trunk cold start; amber = Monty graph prediction; green = accepted
+    pixel sensation; red X = rejected sensation; cyan ring = palm anchor.
+    """
+    h, w = frame_bgr.shape[:2]
+
+    def pixels(values):
+        a = np.asarray(values, np.float32).reshape(21, 2)
+        a = np.nan_to_num(a, nan=-1.0, posinf=2.0, neginf=-1.0)
+        return [(int(round(float(x) * w)), int(round(float(y) * h))) for x, y in a]
+
+    coarse = pixels(state["coarse"])
+    predicted = pixels(state["predicted"])
+    points = pixels(state["points"])
+    accepted = np.asarray(state["accepted"], bool)
+    rejected = np.asarray(state["rejected"], bool)
+    anchors = set(map(int, np.asarray(state["anchors"]).tolist()))
+
+    for p in coarse:
+        cv2.circle(frame_bgr, p, 2, (255, 128, 32), -1)
+    for a, b in HAND_CONNECTIONS:
+        cv2.line(frame_bgr, predicted[a], predicted[b], (0, 190, 255), 1)
+    for joint, p in enumerate(points):
+        if accepted[joint]:
+            cv2.circle(frame_bgr, p, 4, (60, 255, 60), -1)
+        elif rejected[joint]:
+            cv2.line(frame_bgr, (p[0] - 4, p[1] - 4), (p[0] + 4, p[1] + 4), (40, 40, 255), 2)
+            cv2.line(frame_bgr, (p[0] + 4, p[1] - 4), (p[0] - 4, p[1] + 4), (40, 40, 255), 2)
+        else:
+            cv2.circle(frame_bgr, p, 2, (0, 190, 255), -1)
+        if joint in anchors:
+            cv2.circle(frame_bgr, p, 7, (255, 255, 0), 1)
+
+    count = int(accepted.sum())
+    hypothesis = str(state.get("hypothesis", "noop"))
+    prototype = int(state.get("prototype", -1))
+    elapsed = float(state.get("total_ms", 0.0))
+    line1 = f"SENSORIMOTOR {count}/21 accepted  proto {prototype}  {elapsed:.1f} ms"
+    line2 = f"hypothesis: {hypothesis} (display only)  COMMANDS OFF"
+    cv2.rectangle(frame_bgr, (8, 8), (min(w - 8, 590), 56), (18, 18, 18), -1)
+    cv2.putText(frame_bgr, line1, (16, 28), cv2.FONT_HERSHEY_SIMPLEX, .48,
+                (235, 235, 235), 1, cv2.LINE_AA)
+    cv2.putText(frame_bgr, line2, (16, 49), cv2.FONT_HERSHEY_SIMPLEX, .48,
+                (80, 220, 255), 1, cv2.LINE_AA)
+
+
+def discover_svm_models() -> dict[str, str]:
+    """Trained SVM classifiers -> {dropdown title: model path}, titled with the
+    same 'basename · params · detail · bit-depth' convention as the YOLOs.
+    model.onnx (float32 end-to-end, the deployment artifact) is preferred;
+    the fp64 joblib is only listed when no ONNX export exists (old runs)."""
+    out: dict[str, str] = {}
+    onnx_p = _SVM_RUN_DIR / "model.onnx"
+    joblib_p = _SVM_RUN_DIR / "model.joblib"
+    model_p, bits = (onnx_p, "fp32") if onnx_p.exists() else (joblib_p, "fp64")
+    if not model_p.exists():
+        return out
+    n_sv, nc = "?", "?"
+    try:
+        meta = json.loads((_SVM_RUN_DIR / "meta.json").read_text())
+        n_sv, nc = meta.get("n_support_vectors", "?"), len(meta.get("classes", []))
+    except Exception:
+        pass
+    out[f"svm-rbf · {n_sv}SV · crude-{nc}c-63f · {bits}"] = str(model_p)
+    return out
+
+
+class MediaPipeSvmWorker(QThread):
+    """MediaPipe landmarker + SVM on its own thread (same coalescing-queue,
+    one-job pattern as YoloGestureWorker). Emits the landmark skeleton too so
+    the viewer can render the traditional MediaPipe overlay."""
+
+    progress = pyqtSignal(str)
+    ready = pyqtSignal(str)
+    failed = pyqtSignal(str)
+    # [Detection], intent, timing {lm_ms, svm_us, gated}, hands
+    results_ready = pyqtSignal(object, str, object, object)
+
+    def __init__(self, model_path: str | None = None) -> None:
+        super().__init__()
+        self._jobs: "queue.Queue[np.ndarray | None]" = queue.Queue()
+        default = _SVM_RUN_DIR / "model.onnx"
+        if model_path is None and not default.exists():
+            default = _SVM_RUN_DIR / "model.joblib"    # pre-fp32 runs
+        self._model_path = model_path or str(default)
+        self._predict_proba = None                     # (1,63) float32 -> (n_classes,) proba
+        self._landmarker = None
+        self._classes: list[str] = []
+        self._miss_streak = 0                          # consecutive no-hand results
+        self._prev_small: np.ndarray | None = None     # 32x32 grey, idle-gate watchdog
+
+    def submit(self, frame_bgr: np.ndarray) -> None:
+        self._jobs.put(frame_bgr)
+
+    def stop(self) -> None:
+        self._jobs.put(None)
+
+    def _ensure_models(self):
+        if self._predict_proba is not None:
+            return
+        if not Path(self._model_path).exists():
+            raise FileNotFoundError(
+                f"no SVM at {self._model_path!r} — run .venv/bin/python train/mediapipe_svm.py")
+        if not _HAND_LANDMARKER.exists():
+            raise FileNotFoundError(f"missing {_HAND_LANDMARKER} (see train/mediapipe_svm.py)")
+        self.progress.emit("loading MediaPipe + SVM…")
+        root = str(Path(__file__).resolve().parents[1])
+        if root not in sys.path:                 # for `from train.mediapipe_svm import …`
+            sys.path.insert(0, root)
+        import mediapipe as mp
+        from mediapipe.tasks import python as mp_python
+        from mediapipe.tasks.python import vision
+
+        self._mp = mp
+        bits = "fp32"
+        if self._model_path.endswith("objects.npz"):
+            # Monty backend: few-shot 3D evidence over landmark constellations
+            from train.monty_lab import EvidenceLM
+            from train.monty_lab.tasks.gestures import INTENT as MONTY_INTENT, hand_to_episode
+            from train.mediapipe_svm import point_direction as _pd
+            self.STATUS_PREFIX = "MNTY"
+            lm_model = EvidenceLM.load(Path(self._model_path))
+
+            def _monty_classify(hand):
+                ep = hand_to_episode(hand)
+                obj, e, _pose = lm_model.infer(ep)
+                if obj == "point":
+                    d = _pd(hand)
+                    return f"point→{d.lower()}", (d if d in ("LEFT", "RIGHT") else ""), e
+                return obj, MONTY_INTENT.get(obj, ""), e
+            self._monty_classify = _monty_classify
+            self._predict_proba = lambda feats: (_ for _ in ()).throw(RuntimeError("monty backend"))
+            self._classes = ["palm", "fist", "like", "point", "noop"]
+        elif self._model_path.endswith(".onnx"):
+            # float32 end-to-end: float32 landmark features into an ONNX
+            # SVMClassifier scored by onnxruntime — nothing upcasts to double.
+            import onnxruntime as ort
+            sess = ort.InferenceSession(self._model_path, providers=["CPUExecutionProvider"])
+            self._classes = json.loads((_SVM_RUN_DIR / "meta.json").read_text())["classes"]
+            self._predict_proba = lambda feats: sess.run(
+                ["probabilities"], {"landmarks": feats})[0][0]
+        else:                                    # legacy joblib (sklearn/libsvm = fp64)
+            import joblib
+            clf = joblib.load(self._model_path)
+            self._classes = list(clf.classes_)
+            self._predict_proba = lambda feats: clf.predict_proba(feats)[0]
+            bits = "fp64"
+        # VIDEO mode: the palm-detector CNN runs only when tracking is lost;
+        # steady-state frames run just the landmark model on the tracked ROI —
+        # ~2.4x faster than IMAGE mode (9.2ms -> 3.9ms on the M4).
+        self._landmarker = vision.HandLandmarker.create_from_options(
+            vision.HandLandmarkerOptions(
+                base_options=mp_python.BaseOptions(model_asset_path=str(_HAND_LANDMARKER)),
+                num_hands=1,
+                min_hand_detection_confidence=SVM_DET_CONF,
+                min_hand_presence_confidence=SVM_PRESENCE_CONF,
+                min_tracking_confidence=SVM_TRACK_CONF,
+                running_mode=vision.RunningMode.VIDEO))
+        self._ts_ms = 0
+        self.ready.emit(f"MediaPipe+SVM loaded ({len(self._classes)} classes, CPU, video mode, {bits})")
+
+    def _detect(self, frame_bgr: np.ndarray) -> tuple[list, str, list, dict]:
+        from train.mediapipe_svm import landmarks_to_features, point_direction  # single source of truth
+
+        h, w = frame_bgr.shape[:2]
+        if max(h, w) > SVM_MAX_DIM:
+            s = SVM_MAX_DIM / max(h, w)
+            frame_bgr = cv2.resize(frame_bgr, (int(w * s), int(h * s)))
+        rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
+        self._ts_ms += 33  # monotonic video timestamp (tick cadence)
+        t0 = time.perf_counter()
+        res = self._landmarker.detect_for_video(
+            self._mp.Image(image_format=self._mp.ImageFormat.SRGB, data=rgb), self._ts_ms)
+        timing = {"lm_ms": (time.perf_counter() - t0) * 1000.0, "svm_us": 0.0, "gated": False}
+        if not res.hand_landmarks:
+            return [], "", [], timing
+        hand = res.hand_landmarks[0]
+        if getattr(self, "_monty_classify", None) is not None:
+            t1 = time.perf_counter()
+            label_txt, intent, e = self._monty_classify(hand)
+            timing["svm_us"] = (time.perf_counter() - t1) * 1e6
+            if label_txt == "noop":
+                return [], "", [[(q.x, q.y) for q in hand]], timing
+            xs, ys = [q.x for q in hand], [q.y for q in hand]
+            dets = [Detection(max(0.0, min(xs) - 0.02), max(0.0, min(ys) - 0.02),
+                              min(1.0, max(xs) + 0.02), min(1.0, max(ys) + 0.02),
+                              e, 0, f"{label_txt} {e:.2f}")]
+            return dets, intent, [[(q.x, q.y) for q in hand]], timing
+        feats = landmarks_to_features(hand).reshape(1, -1).astype(np.float32)
+        t1 = time.perf_counter()
+        proba = self._predict_proba(feats)
+        timing["svm_us"] = (time.perf_counter() - t1) * 1e6
+        top = int(proba.argmax())
+        cls, p = self._classes[top], float(proba[top])
+        xs, ys = [q.x for q in hand], [q.y for q in hand]
+        x1, y1 = max(0.0, min(xs) - 0.02), max(0.0, min(ys) - 0.02)
+        x2, y2 = min(1.0, max(xs) + 0.02), min(1.0, max(ys) + 0.02)
+        if p < SVM_CONF_MIN:
+            label, intent = f"unsure ({cls} {p:.2f})", ""
+        elif cls == "point":
+            # shape says point; GEOMETRY decides the outcome. Vertical points
+            # command nothing by design (the UX contract: only a clearly
+            # horizontal index finger turns the robot).
+            direction = point_direction(hand)
+            intent = direction if direction in ("LEFT", "RIGHT") else ""
+            label = f"point→{direction.lower()} {p:.2f}"
+        else:
+            label, intent = f"{cls} {p:.2f}", SVM_CLASS_TO_INTENT.get(cls, "")
+        dets = [Detection(x1, y1, x2, y2, p, self._classes.index(cls), label)]
+        return dets, intent, [[(q.x, q.y) for q in hand]], timing
+
+    def _gated_idle(self, frame_bgr: np.ndarray) -> bool:
+        """True when the landmark CNN can be skipped: no hand for a while AND
+        the scene is static (32x32 grey delta below SVM_WAKE_DELTA)."""
+        small = cv2.cvtColor(cv2.resize(frame_bgr, (32, 32)), cv2.COLOR_BGR2GRAY).astype(np.float32)
+        prev, self._prev_small = self._prev_small, small
+        if self._miss_streak < SVM_IDLE_AFTER or prev is None:
+            return False
+        return float(np.abs(small - prev).mean()) < SVM_WAKE_DELTA
+
+    def run(self) -> None:
+        while True:
+            job = self._jobs.get()
+            if job is None:
+                break
+            while True:  # coalesce to the newest frame
+                try:
+                    nxt = self._jobs.get_nowait()
+                except queue.Empty:
+                    break
+                if nxt is None:
+                    job = None
+                    break
+                job = nxt
+            if job is None:
+                break
+            try:
+                self._ensure_models()
+                if self._gated_idle(job):
+                    self.results_ready.emit([], "", {"lm_ms": 0.0, "svm_us": 0.0, "gated": True}, [])
+                    continue
+                dets, intent, hands, timing = self._detect(job)
+                self._miss_streak = 0 if hands else self._miss_streak + 1
+            except FileNotFoundError as exc:
+                self.failed.emit(str(exc))
+                break
+            except Exception:  # noqa: BLE001 - transient detect error must not kill the thread
+                import traceback
+                traceback.print_exc()
+                continue
+            self.results_ready.emit(dets, intent, timing, hands)
+
+
+# ── Distilled tiny gesture net (train/tiny_gesture.py) — the A/B variant ─────
+# One ~99k-param CNN distilled FROM the MediaPipe+SVM pipeline: pixels ->
+# outcome in a single pass, no landmark stage. ~1ms/frame vs ~5ms. The trade:
+# it sees pixels, not geometry, so it only knows the world in train/crude —
+# judge it against the baseline live (runtime dropdown) and via its eval stage.
+_TINY_RUN_DIR = Path(__file__).resolve().parents[1] / "train" / "runs" / "tiny_gesture"
+_LANDMARK_RUN_DIR = Path(__file__).resolve().parents[1] / "train" / "runs" / "landmark_tower"
+_ORACLE_STUDENT_DIR = (Path(__file__).resolve().parents[1]
+                       / "train" / "runs" / "monty_landmark_alignment" / "oracle_student")
+TINY_OUTCOME_TO_INTENT = {
+    "stop": "STOP", "fist": "HOME", "like": "TROT",
+    "point_left": "LEFT", "point_right": "RIGHT",
+    "point_vertical": "", "no_hand": "",           # no-ops by design
+}
+
+
+def discover_tiny_models() -> dict[str, str]:
+    try:
+        meta = json.loads((_TINY_RUN_DIR / "meta.json").read_text())
+    except Exception:
+        meta = {}
+    params = f"{meta.get('params', 0) / 1e3:.0f}k"
+    nc = len(meta.get("classes", []))
+    if meta.get("version") == 3 and (_TINY_RUN_DIR / "trunk.onnx").exists():
+        return {f"tinynet3 · {params} · crop+seq-{nc}c · fp32": str(_TINY_RUN_DIR / "trunk.onnx")}
+    model_p = _TINY_RUN_DIR / "model.onnx"
+    if not model_p.exists():
+        return {}
+    return {f"tinynet · {params} · distilled-{nc}c-{meta.get('input_px', '?')}px · fp32": str(model_p)}
+
+
+class TinyGestureWorker(QThread):
+    """Distilled single-pass gesture net on its own thread. Same signal
+    contract as MediaPipeSvmWorker so the viewer wiring is shared; emits no
+    hand skeleton (there are no landmarks at inference time — that is the
+    entire point of the distillation)."""
+
+    STATUS_PREFIX = "TINY"
+
+    progress = pyqtSignal(str)
+    ready = pyqtSignal(str)
+    failed = pyqtSignal(str)
+    results_ready = pyqtSignal(object, str, object, object)  # [Detection], intent, timing, hands
+
+    def __init__(self, model_path: str | None = None) -> None:
+        super().__init__()
+        self._jobs: "queue.Queue[np.ndarray | None]" = queue.Queue()
+        self._model_path = model_path or str(_TINY_RUN_DIR / "model.onnx")
+        self._sess = None
+        self._classes: list[str] = []
+        self._img = 128
+
+    def submit(self, frame_bgr: np.ndarray) -> None:
+        self._jobs.put(frame_bgr)
+
+    def stop(self) -> None:
+        self._jobs.put(None)
+
+    def _ensure_model(self):
+        if self._sess is not None:
+            return
+        if not Path(self._model_path).exists():
+            raise FileNotFoundError(
+                f"no tiny net at {self._model_path!r} — run .venv/bin/python train/tiny_gesture.py train")
+        self.progress.emit("loading tiny gesture net…")
+        root = str(Path(__file__).resolve().parents[1])
+        if root not in sys.path:
+            sys.path.insert(0, root)
+        if "landmark_tower" in self._model_path:
+            from train.landmark_tower import LandmarkerGestureRuntime
+            self._rt = LandmarkerGestureRuntime(conf=SVM_CONF_MIN if SVM_CONF_MIN < 0.84 else 0.6)
+            self._v3 = "landmarks"
+            self.STATUS_PREFIX = "LAND"
+            self._classes = ["palm", "fist", "like", "point_right", "point_left", "noop"]
+            self.ready.emit("landmarker tower loaded (21 points + frozen crop/sequence towers, CPU fp32)")
+            return
+        meta = json.loads((_TINY_RUN_DIR / "meta.json").read_text())
+        self._classes = meta["classes"]
+        self._img = int(meta.get("input_px", 128))
+        self._v3 = meta.get("version") == 3
+        if self._v3:
+            from train.gesture_lab import TinyV3Runtime
+            self._rt = TinyV3Runtime(conf=SVM_CONF_MIN)
+            self.ready.emit(f"tinynet v3 loaded (detect->crop->classify + seq, "
+                            f"{meta.get('params', 0) / 1e3:.0f}k params, CPU fp32)")
+            return
+        import onnxruntime as ort
+        self._sess = ort.InferenceSession(self._model_path, providers=["CPUExecutionProvider"])
+        self.ready.emit(f"tinynet loaded ({len(self._classes)} outcomes, CPU, fp32, "
+                        f"{meta.get('params', 0) / 1e3:.0f}k params)")
+
+    def _detect(self, frame_bgr: np.ndarray) -> tuple[list, str, dict]:
+        if getattr(self, "_v3", False) == "landmarks":
+            from train.gesture_lab import V3_INTENT, _lm_crop_box
+            rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
+            t0 = time.perf_counter()
+            tower, p, lm42 = self._rt.step(rgb)
+            timing = {"lm_ms": (time.perf_counter() - t0) * 1000.0, "svm_us": 0.0, "gated": False}
+            if tower == "noop" or lm42 is None:
+                return [], "", timing
+            cx, cy, side = _lm_crop_box(lm42)
+            x1, y1, x2, y2 = max(0.,cx-side/2),max(0.,cy-side/2),min(1.,cx+side/2),min(1.,cy+side/2)
+            dets = [Detection(x1, y1, x2, y2, p, self._classes.index(tower), f"{tower} {p:.2f}")]
+            return dets, V3_INTENT.get(tower, ""), timing
+        if getattr(self, "_v3", False):
+            from train.gesture_lab import V3_INTENT, _lm_crop_box
+            rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
+            t0 = time.perf_counter()
+            tower, p, lm42 = self._rt.step(rgb)
+            timing = {"lm_ms": (time.perf_counter() - t0) * 1000.0, "svm_us": 0.0, "gated": False}
+            if tower == "noop" or lm42 is None:
+                return [], "", timing
+            cx, cy, side = _lm_crop_box(lm42)
+            dets = [Detection(max(0.0, cx - side / 2), max(0.0, cy - side / 2),
+                              min(1.0, cx + side / 2), min(1.0, cy + side / 2),
+                              p, self._classes.index(tower), f"{tower} {p:.2f}")]
+            return dets, V3_INTENT.get(tower, ""), timing
+        rgb = cv2.cvtColor(cv2.resize(frame_bgr, (self._img, self._img)), cv2.COLOR_BGR2RGB)
+        x = (rgb.astype(np.float32) / 255.0 - 0.5).transpose(2, 0, 1)[None]
+        t0 = time.perf_counter()
+        proba = self._sess.run(["probabilities"], {"frames": x})[0][0]
+        timing = {"lm_ms": (time.perf_counter() - t0) * 1000.0, "svm_us": 0.0, "gated": False}
+        p, cls = float(proba.max()), self._classes[int(proba.argmax())]
+        if cls == "no_hand" or p < SVM_CONF_MIN:
+            return [], "", timing
+        label = f"{cls} {p:.2f}"
+        dets = [Detection(0.02, 0.04, 0.30, 0.16, p, self._classes.index(cls), label)]
+        return dets, TINY_OUTCOME_TO_INTENT.get(cls, ""), timing
+
+    def run(self) -> None:
+        while True:
+            job = self._jobs.get()
+            if job is None:
+                break
+            while True:  # coalesce to the newest frame
+                try:
+                    nxt = self._jobs.get_nowait()
+                except queue.Empty:
+                    break
+                if nxt is None:
+                    job = None
+                    break
+                job = nxt
+            if job is None:
+                break
+            try:
+                self._ensure_model()
+                dets, intent, timing = self._detect(job)
+            except FileNotFoundError as exc:
+                self.failed.emit(str(exc))
+                break
+            except Exception:  # noqa: BLE001 - transient error must not kill the thread
+                import traceback
+                traceback.print_exc()
+                continue
+            lm = getattr(getattr(self, "_rt", None), "last_lm", None)
+            hands = [[tuple(x) for x in lm.reshape(21, 2)]] if lm is not None else []
+            self.results_ready.emit(dets, intent, timing, hands)
+
+
+# ── Monty (3D evidence) gesture recognition — monty_lab task #1 ──────────────
+# Landmarker in front (as ever); recognition = few-shot 3D constellation
+# evidence (train/monty_lab). Learned in seconds, extended in seconds.
+# PAVE_MONTY_RUN_DIR lets an external Monty object memory (e.g. the
+# HAND POSE SENSORIMOTOR LAB's objects.npz) be tested without touching the
+# incumbent artifacts: PAVE_MONTY_RUN_DIR=/path/to/dir ./mlx-runtime.sh
+_MONTY_RUN_DIR = Path(
+    os.environ.get(
+        "PAVE_MONTY_RUN_DIR",
+        str(Path(__file__).resolve().parents[1] / "train" / "runs" / "monty_gestures"),
+    )
+).expanduser()
+# The HAND POSE SENSORIMOTOR LAB's export is auto-discovered as its own
+# dropdown variant when present (no env var needed).
+_HAND_POSE_LAB_DIR = Path(
+    os.environ.get(
+        "PAVE_HAND_POSE_LAB_DIR",
+        "~/Documents/GitHub/monty/tutorials/results/hand_pose_lab/pretrained",
+    )
+).expanduser()
+_HAND_POSE_LAB_RUNS_DIR = Path(
+    os.environ.get(
+        "PAVE_HAND_POSE_LAB_RUNS_DIR",
+        str(_HAND_POSE_LAB_DIR.parent / "runs"),
+    )
+).expanduser()
+
+
+class LandmarkerMontyWorker(TinyGestureWorker):
+    """Student landmark tower -> lifted 3D points -> frozen Monty evidence.
+
+    The tower predicts MediaPipe-compatible x/y coordinates. A class-neutral
+    per-joint depth prior, calculated from all frozen Monty exemplars, lifts
+    them into EvidenceLM's 3D contract without MediaPipe at runtime. The
+    original MediaPipe+Monty worker and artifact remain untouched.
+    """
+
+    STATUS_PREFIX = "LMNT"
+
+    def _ensure_model(self):
+        if self._sess is not None:
+            return
+        # A "?objects=" suffix binds this variant to a specific Monty object
+        # memory (e.g. the HAND POSE SENSORIMOTOR LAB export) without touching
+        # the incumbent _MONTY_RUN_DIR artifacts.
+        landmark_value = str(self._model_path)
+        if "?objects=" in landmark_value:
+            landmark_value, objects_value = landmark_value.split("?objects=", 1)
+            monty_path = Path(objects_value).expanduser()
+        else:
+            monty_path = _MONTY_RUN_DIR / "objects.npz"
+        landmark_path = Path(landmark_value)
+        if not landmark_path.exists():
+            raise FileNotFoundError(
+                f"no landmark tower at {landmark_path!s} — run ./train/landmark-tower.sh train")
+        if not monty_path.exists():
+            raise FileNotFoundError(
+                "no Monty evidence — run: cd train && ../.venv/bin/python "
+                "-m monty_lab.runner learn --task gestures")
+        self.progress.emit("loading landmark tower + Monty evidence…")
+        root = str(Path(__file__).resolve().parents[1])
+        if root not in sys.path:
+            sys.path.insert(0, root)
+        from train.monty_lab import EvidenceLM
+
+        try:
+            landmark_meta = json.loads((landmark_path.parent / "meta.json").read_text())
+        except Exception:
+            landmark_meta = {}
+        acquisition_matched = str(landmark_meta.get("contract", "")).startswith(
+            ("openpave.acquisition-matched-landmarker", "openpave.oracle-roi-landmarker"))
+        if acquisition_matched or "oracle_student" in str(landmark_path):
+            # Oracle-ROI candidate: detector global search -> oriented crop
+            # cold start -> landmark-derived ROI tracking (state machine from
+            # docs/training-with-monty.md §7). Same step() contract.
+            from train.monty_lab.tbp_adapter.oracle_runtime import OracleLandmarkerRuntime
+            self._landmark_runtime = OracleLandmarkerRuntime(
+                presence_gate=float(os.environ.get("PAVE_LANDMARK_PRESENCE", "0.50")),
+                model_dir=landmark_path.parent)
+        else:
+            from train.landmark_tower import LandmarkerRuntime
+            self._landmark_runtime = LandmarkerRuntime(
+                presence_gate=float(os.environ.get("PAVE_LANDMARK_PRESENCE", "0.50")),
+                quality_gate=float(os.environ.get("PAVE_LANDMARK_QUALITY", "0.15")))
+        self._monty = EvidenceLM.load(monty_path)
+        if not landmark_meta:
+            try:
+                landmark_meta = json.loads((_LANDMARK_RUN_DIR / "meta.json").read_text())
+            except Exception:
+                landmark_meta = {}
+        self._input_px = int(landmark_meta.get("input_px", 96))
+
+        stored = np.load(monty_path, allow_pickle=True)
+        examples = np.concatenate([stored[k] for k in stored.files]).astype(np.float32)
+        examples -= examples[:, :1]
+        scale = np.maximum(np.abs(examples).max(axis=(1, 2), keepdims=True), 1e-6)
+        # One neutral anatomical profile across every class: no answer leakage.
+        self._depth_prior = np.median(examples / scale, axis=0)[:, 2]
+        self._presence_gate = float(os.environ.get("PAVE_LANDMARK_PRESENCE", "0.50"))
+        self._quality_gate = float(os.environ.get("PAVE_LANDMARK_QUALITY", "0.15"))
+        self._classes = ["palm", "fist", "like", "point", "noop"]
+        self.last_lm = None
+        self._rt = self                    # inherited run() emits these overlay points
+        self._sess = True                  # TinyGestureWorker loaded sentinel
+        self.ready.emit("landmark tower + Monty 3D evidence loaded (CPU fp32, no MediaPipe)")
+
+    def _detect(self, frame_bgr: np.ndarray) -> tuple[list, str, dict]:
+        from train.monty_lab.protocol import Episode, Observation
+        from train.monty_lab.tasks.gestures import INTENT as MONTY_INTENT
+
+        rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
+        t0 = time.perf_counter()
+        lm, presence, quality = self._landmark_runtime.step(rgb)
+        timing = {"lm_ms": (time.perf_counter() - t0) * 1000.0,
+                  "svm_us": 0.0, "gated": False}
+        if lm is None:
+            self.last_lm = None
+            return [], "", timing
+
+        self.last_lm = lm
+        xy = lm.reshape(21, 2)
+        joint_mask = getattr(self._landmark_runtime, "last_joint_mask", None)
+        if joint_mask is None:
+            joint_mask = np.isfinite(xy).all(axis=1)
+        else:
+            joint_mask = np.asarray(joint_mask, bool) & np.isfinite(xy).all(axis=1)
+        joint_ids = np.flatnonzero(joint_mask)
+        if len(joint_ids) < 3:
+            return [], "", timing
+        observed_xy = xy[joint_ids]
+        centred = observed_xy - observed_xy[:1]
+        xy_scale = max(float(np.abs(centred).max()), 1e-6)
+        xyz = np.column_stack(
+            (centred / xy_scale, self._depth_prior[joint_ids])).astype(np.float32)
+        ep = Episode([Observation(location=p) for p in xyz])
+        t1 = time.perf_counter()
+        if len(joint_ids) == 21:
+            obj, evidence, _pose = self._monty.infer(ep)
+        else:
+            obj, evidence, _pose = self._monty.infer_partial(ep, joint_ids)
+        timing["svm_us"] = (time.perf_counter() - t1) * 1e6
+
+        intent = MONTY_INTENT.get(obj, "")
+        label = obj
+        if obj == "point" and joint_mask[5] and joint_mask[8]:
+            dx, dy = xy[8] - xy[5]
+            angle = abs(float(np.degrees(np.arctan2(-dy, dx))))
+            cone = float(os.environ.get("PAVE_POINT_CONE_DEG", "35"))
+            flip = os.environ.get("PAVE_POINT_MIRROR", "").lower() in ("1", "true", "yes")
+            direction = ""
+            if angle <= cone:
+                direction = "RIGHT" if flip else "LEFT"
+            elif angle >= 180.0 - cone:
+                direction = "LEFT" if flip else "RIGHT"
+            intent = direction
+            label = f"point→{direction.lower()}" if direction else "point→vertical"
+        elif obj == "point":
+            intent = ""
+            label = "point→uncertain"
+
+        if obj == "noop":
+            return [], "", timing
+        xs, ys = observed_xy[:, 0], observed_xy[:, 1]
+        dets = [Detection(max(0.0, float(xs.min()) - .02),
+                          max(0.0, float(ys.min()) - .02),
+                          min(1.0, float(xs.max()) + .02),
+                          min(1.0, float(ys.max()) + .02),
+                          evidence, self._classes.index(obj), f"{label} {evidence:.2f}")]
+        return dets, intent, timing
+
+
+class HanCoTargetWorker(TinyGestureWorker):
+    """Frozen legacy 71k acquirer plus the binary HanCo_tester geometry gate."""
+
+    STATUS_PREFIX = "HNCO"
+
+    def _ensure_model(self):
+        if self._sess is not None:
+            return
+        model_path = Path(self._model_path)
+        meta_path = model_path.with_name("meta.json")
+        if not model_path.is_file() or not meta_path.is_file():
+            raise FileNotFoundError(
+                "no HanCo target proof-of-concept — run .venv/bin/python "
+                "train/hanco_target_poc.py")
+        self.progress.emit("loading 71k + HanCo_tester geometry gate…")
+        from train.landmark_tower import LandmarkerRuntime
+
+        self._meta = json.loads(meta_path.read_text())
+        gates = self._meta["gates"]
+        self._landmark_runtime = LandmarkerRuntime(
+            presence_gate=float(gates["presence"]),
+            quality_gate=float(gates["quality"]),
+        )
+        stored = np.load(model_path)
+        self._mean = stored["mean"]
+        self._scale = stored["scale"]
+        self._coefficients = stored["coefficients"]
+        self._intercept = float(stored["intercept"])
+        self._target_gate = float(stored["threshold"])
+        self._classes = ["HanCo_tester", "no_hand"]
+        self.last_lm = None
+        self._rt = self
+        self._sess = True
+        self.ready.emit("71k + HanCo_tester target gate loaded (CPU fp32, commands off)")
+
+    def _detect(self, frame_bgr: np.ndarray) -> tuple[list, str, dict]:
+        from train.hanco_target_poc import feature
+
+        rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
+        t0 = time.perf_counter()
+        landmarks, _presence, _quality = self._landmark_runtime.step(rgb)
+        timing = {"lm_ms": (time.perf_counter() - t0) * 1000.0,
+                  "svm_us": 0.0, "gated": False}
+        if landmarks is None:
+            self.last_lm = None
+            return [], "", timing
+        self.last_lm = landmarks
+        xy = landmarks.reshape(21, 2)
+        value = (feature(xy) - self._mean) / self._scale
+        logit = float(value @ self._coefficients + self._intercept)
+        probability = 1.0 / (1.0 + np.exp(-np.clip(logit, -30.0, 30.0)))
+        if probability < self._target_gate:
+            return [], "", timing
+        xs, ys = xy[:, 0], xy[:, 1]
+        detection = Detection(
+            max(0.0, float(xs.min()) - 0.02),
+            max(0.0, float(ys.min()) - 0.02),
+            min(1.0, float(xs.max()) + 0.02),
+            min(1.0, float(ys.max()) + 0.02),
+            probability,
+            0,
+            f"HanCo_tester {probability:.2f}",
+        )
+        # Proof-of-concept recognition is display-only: it cannot issue a
+        # robot command until a user explicitly maps this new gesture.
+        return [detection], "", timing
+
+
+class HanCoGestureWorker(TinyGestureWorker):
+    """Frozen 71k acquirer plus reviewed multiclass HanCo geometry diagnostic."""
+
+    STATUS_PREFIX = "HNGS"
+
+    def _ensure_model(self):
+        if self._sess is not None:
+            return
+        model_path = Path(self._model_path)
+        meta_path = model_path.with_name("meta.json")
+        if not model_path.is_file() or not meta_path.is_file():
+            raise FileNotFoundError(
+                "no HanCo gesture proof-of-concept — run ./train/monty-landmarks.sh "
+                "hanco-gestures")
+        self.progress.emit("loading 71k + reviewed HanCo gesture mix…")
+        from train.landmark_tower import LandmarkerRuntime
+
+        stored = np.load(model_path)
+        self._landmark_runtime = LandmarkerRuntime(
+            presence_gate=float(stored["presence_gate"]),
+            quality_gate=float(stored["quality_gate"]),
+        )
+        self._mean = stored["mean"]
+        self._scale = stored["scale"]
+        self._coefficients = stored["coefficients"]
+        self._intercept = stored["intercept"]
+        self._classes = stored["classes"].astype(str).tolist()
+        self._gesture_gate = float(stored["confidence_gate"])
+        self.last_lm = None
+        self._rt = self
+        self._sess = True
+        self.ready.emit("71k + HanCo gestures loaded (CPU diagnostic, commands off)")
+
+    def _detect(self, frame_bgr: np.ndarray) -> tuple[list, str, dict]:
+        from train.hanco_target_poc import feature
+
+        rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
+        t0 = time.perf_counter()
+        landmarks, _presence, _quality = self._landmark_runtime.step(rgb)
+        timing = {"lm_ms": (time.perf_counter() - t0) * 1000.0,
+                  "svm_us": 0.0, "gated": False}
+        if landmarks is None:
+            self.last_lm = None
+            return [], "", timing
+        self.last_lm = landmarks
+        xy = landmarks.reshape(21, 2)
+        value = (feature(xy) - self._mean) / self._scale
+        logits = self._coefficients @ value + self._intercept
+        probabilities = np.exp(logits - logits.max())
+        probabilities /= probabilities.sum()
+        top = int(probabilities.argmax())
+        probability = float(probabilities[top])
+        label = self._classes[top]
+        if label == "no_hand" or probability < self._gesture_gate:
+            return [], "", timing
+        display = label
+        if label == "point":
+            dx, dy = xy[8] - xy[5]
+            angle = abs(float(np.degrees(np.arctan2(-dy, dx))))
+            if angle <= 35:
+                display = "point→left"
+            elif angle >= 145:
+                display = "point→right"
+            else:
+                display = "point→vertical"
+        xs, ys = xy[:, 0], xy[:, 1]
+        detection = Detection(
+            max(0.0, float(xs.min()) - 0.02), max(0.0, float(ys.min()) - 0.02),
+            min(1.0, float(xs.max()) + 0.02), min(1.0, float(ys.max()) + 0.02),
+            probability, top, f"{display} {probability:.2f}")
+        return [detection], "", timing
+
+
+class HanCoCropGestureWorker(TinyGestureWorker):
+    """Frozen 71k acquisition plus the HanCo-only reviewed RGB crop head."""
+
+    STATUS_PREFIX = "HNCP"
+
+    def _ensure_model(self):
+        if self._sess is not None:
+            return
+        model_path = Path(self._model_path)
+        meta_path = model_path.with_name("meta.json")
+        if not model_path.is_file() or not meta_path.is_file():
+            raise FileNotFoundError(
+                "no HanCo crop model — run ./train/monty-landmarks.sh hanco-gestures")
+        self.progress.emit("loading 71k + HanCo-only crop classifier…")
+        import onnxruntime as ort
+        from train.landmark_tower import LandmarkerRuntime
+
+        meta = json.loads(meta_path.read_text())
+        self._landmark_runtime = LandmarkerRuntime(
+            presence_gate=float(os.environ.get("PAVE_LANDMARK_PRESENCE", "0.50")),
+            quality_gate=float(os.environ.get("PAVE_LANDMARK_QUALITY", "0.15")))
+        self._crop_session = ort.InferenceSession(
+            str(model_path), providers=["CPUExecutionProvider"])
+        self._classes = list(meta["classes"])
+        self.last_lm = None
+        self._rt = self
+        self._sess = True
+        self.ready.emit("71k + HanCo-only RGB crop head loaded (CPU diagnostic, commands off)")
+
+    def _detect(self, frame_bgr: np.ndarray) -> tuple[list, str, dict]:
+        from train.hanco_crop_gesture import take_crop
+
+        rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
+        t0 = time.perf_counter()
+        landmarks, _presence, _quality = self._landmark_runtime.step(rgb)
+        landmark_ms = (time.perf_counter() - t0) * 1000.0
+        if landmarks is None:
+            self.last_lm = None
+            return [], "", {"lm_ms": landmark_ms, "svm_us": 0.0, "gated": False}
+        self.last_lm = landmarks
+        xy = landmarks.reshape(21, 2)
+        crop = take_crop(rgb, xy)
+        values = (crop.astype(np.float32) / 255.0 - 0.5).transpose(2, 0, 1)[None]
+        t1 = time.perf_counter()
+        probabilities = self._crop_session.run(["probabilities"], {"crops": values})[0][0]
+        classifier_us = (time.perf_counter() - t1) * 1e6
+        top = int(probabilities.argmax())
+        probability = float(probabilities[top])
+        label = self._classes[top]
+        timing = {"lm_ms": landmark_ms, "svm_us": classifier_us, "gated": False}
+        if label == "no_hand":
+            return [], "", timing
+        display = label
+        if label == "point":
+            dx, dy = xy[8] - xy[5]
+            angle = abs(float(np.degrees(np.arctan2(-dy, dx))))
+            display = "point→left" if angle <= 35 else "point→right" if angle >= 145 else "point→vertical"
+        xs, ys = xy[:, 0], xy[:, 1]
+        detection = Detection(
+            max(0.0, float(xs.min()) - 0.02), max(0.0, float(ys.min()) - 0.02),
+            min(1.0, float(xs.max()) + 0.02), min(1.0, float(ys.max()) + 0.02),
+            probability, top, f"{display} {probability:.2f}")
+        return [detection], "", timing
+
+
+def discover_landmarker_models() -> dict[str, str]:
+    """Standalone 21-point student landmarker + frozen gesture towers."""
+    model = _LANDMARK_RUN_DIR / "model.onnx"
+    if (not model.exists() or not (_LANDMARK_RUN_DIR / "detector.onnx").exists()
+            or not (_TINY_RUN_DIR / "crop.onnx").exists()):
+        return {}
+    try:
+        meta = json.loads((_LANDMARK_RUN_DIR / "meta.json").read_text())
+    except Exception:
+        meta = {}
+    state = "accepted" if meta.get("accepted") else "REJECTED candidate"
+    models = {
+        f"landmarks · {meta.get('params', 0)/1e3:.0f}k · 21pt+crop+seq · {state} · fp32": str(model)
+    }
+    target = REPO_ROOT / "train/runs/hanco_target_poc/model.npz"
+    try:
+        target_meta = json.loads(target.with_name("meta.json").read_text())
+        metrics = target_meta["metrics"]
+        title = (f"hanco-target · HanCo_tester · 71k+geometry · "
+                 f"{metrics['presence_f1']:.1%} P-F1 · "
+                 f"{metrics['target_acquisition_rate']:.1%} acq · fp32")
+        models[title] = str(target)
+    except Exception:
+        pass
+    gestures = REPO_ROOT / "train/runs/hanco_crop_gesture/crop.onnx"
+    try:
+        gesture_meta = json.loads(gestures.with_name("meta.json").read_text())
+        metrics = gesture_meta["metrics"]
+        title = (f"hanco-crop · reviewed full sequences · HanCo-only · "
+                 f"{gesture_meta['params']/1e3:.0f}k · "
+                 f"{metrics['correct_gesture_acquisition_rate']:.1%} correct · "
+                 "DIAGNOSTIC · fp32")
+        models[title] = str(gestures)
+    except Exception:
+        pass
+    curriculum = REPO_ROOT / "train/runs/hanco_crop_curriculum/crop.onnx"
+    try:
+        curriculum_meta = json.loads(curriculum.with_name("meta.json").read_text())
+        metrics = curriculum_meta["metrics"]
+        title = (f"hanco-crop-ssl · monty-propagated + view-consistent · HanCo-only · "
+                 f"{curriculum_meta['params']/1e3:.0f}k · "
+                 f"{metrics['correct_gesture_acquisition_rate']:.1%} correct · "
+                 "DIAGNOSTIC · fp32")
+        models[title] = str(curriculum)
+    except Exception:
+        pass
+    return models
+
+
+def discover_landmarker_monty_models() -> dict[str, str]:
+    """Combined student landmarker + frozen Monty artifact pair."""
+    landmark = _LANDMARK_RUN_DIR / "model.onnx"
+    monty = _MONTY_RUN_DIR / "objects.npz"
+    if not landmark.exists() or not (_LANDMARK_RUN_DIR / "detector.onnx").exists() or not monty.exists():
+        return {}
+    try:
+        lm_meta = json.loads((_LANDMARK_RUN_DIR / "meta.json").read_text())
+        mo_meta = json.loads((_MONTY_RUN_DIR / "meta.json").read_text())
+    except Exception:
+        lm_meta, mo_meta = {}, {}
+    objects = mo_meta.get("objects", {})
+    exemplars = sum(objects.values()) if isinstance(objects, dict) else "?"
+    models = {}
+    # Completed acquisition-matched runs are listed first. Named runs (for
+    # example the bounded HanCo revision) precede the historical `alternation`
+    # run. Keep rejected rounds visible for empirical GUI comparison, but make
+    # their provenance and live-gate status impossible to miss in the title.
+    reports = sorted(
+        _ORACLE_STUDENT_DIR.glob("alternation*/alternation_report.json"),
+        key=lambda path: (path.parent.name == "alternation", path.parent.name),
+    )
+    for alternation in reports:
+        try:
+            report = json.loads(alternation.read_text())
+            rounds = list(report.get("rounds", []))
+            selected = report.get("selected_round")
+            run_name = alternation.parent.name
+            if run_name.startswith("alternation_hanco_seed"):
+                run_label = f"HanCo seed{run_name.removeprefix('alternation_hanco_seed')}"
+            elif run_name == "alternation":
+                run_label = "MATCHED"
+            else:
+                run_label = run_name.removeprefix("alternation_").replace("_", " ")
+            rounds.sort(key=lambda r: (r.get("round") != selected, r.get("round", 0)))
+            for item in rounds:
+                number = item.get("round", "?")
+                directory = Path(item.get("directory", ""))
+                if not directory.is_absolute():
+                    directory = REPO_ROOT / directory
+                candidate = directory / "landmarker.onnx"
+                meta_path = directory / "meta.json"
+                if not candidate.exists() or not meta_path.exists():
+                    continue
+                candidate_meta = json.loads(meta_path.read_text())
+                gate = item.get("selection_gate", {})
+                gate_state = "LIVE PASS" if gate.get("passed") else "LIVE REJECT"
+                live = (candidate_meta.get("evaluation_columns", {})
+                        .get("proposed_roi_deployment_truth", {})
+                        .get("live_replay") or {})
+                acquisition = (live.get("candidate", {}).get("summary", {})
+                               .get("acquisition_rate"))
+                acquisition_text = (f"{acquisition:.1%} acq" if acquisition is not None
+                                    else "no live metric")
+                chosen = " · SELECTED" if number == selected else ""
+                title = (f"landmark+monty · {run_label} R{number}{chosen} · "
+                         f"{candidate_meta.get('params', 0)/1e3:.0f}k · "
+                         f"{acquisition_text} · {gate_state} · fp32")
+                models[title] = str(candidate)
+        except Exception:
+            pass
+    # Keep the previous oracle-ROI candidate available as the historical
+    # comparison after any completed acquisition-matched rounds.
+    oracle = _ORACLE_STUDENT_DIR / "landmarker.onnx"
+    if oracle.exists():
+        try:
+            o_meta = json.loads((_ORACLE_STUDENT_DIR / "meta.json").read_text())
+        except Exception:
+            o_meta = {}
+        models[(f"landmark+monty · NEW oracle-roi · {o_meta.get('params', 0)/1e3:.0f}k "
+                f"· 21pt+{exemplars}ex-3D-evidence · candidate · fp32")] = str(oracle)
+    state = "accepted" if lm_meta.get("accepted") else "REJECTED candidate"
+    models[(f"landmark+monty · legacy tower · {lm_meta.get('params', 0)/1e3:.0f}k "
+            f"· 21pt+{exemplars}ex-3D-evidence · {state} · fp32")] = str(landmark)
+    # Every completed HAND POSE SENSORIMOTOR LAB run is immutable and
+    # independently purgeable. Newest runs are listed first. The fixed
+    # pretrained/ artifact remains a legacy fallback until versioned runs exist.
+    lab_run_dirs = (
+        sorted(
+            (path for path in _HAND_POSE_LAB_RUNS_DIR.iterdir() if path.is_dir()),
+            reverse=True,
+        )
+        if _HAND_POSE_LAB_RUNS_DIR.is_dir() else []
+    )
+    # Once the versioned runs directory exists it is authoritative, even when
+    # empty after the user purges every run. Do not resurrect the fixed latest
+    # working artifact as an apparently undeleted dropdown entry.
+    lab_candidates = (
+        lab_run_dirs
+        if _HAND_POSE_LAB_RUNS_DIR.is_dir()
+        else [_HAND_POSE_LAB_DIR]
+    )
+    lab_models = {}
+    for run_dir in lab_candidates:
+        lab_objects = run_dir / "objects.npz"
+        if not lab_objects.is_file():
+            continue
+        try:
+            lab_meta = json.loads((run_dir / "meta.json").read_text())
+            if lab_meta.get("objects_convention") != "evidence-lm-normalised.v1":
+                continue
+            lab_count = sum(lab_meta.get("objects", {}).values())
+        except Exception:
+            continue
+        run_id = str(lab_meta.get("run_id", "legacy-undated"))
+        mode = str(lab_meta.get("training_mode", "legacy")).upper()
+        episodes = lab_meta.get("episodes", "?")
+        title = (
+            f"landmark+monty · HAND POSE LAB · {run_id} · {mode} · "
+            f"{episodes}ep · 71k · 21pt+{lab_count}ex-3D-evidence · "
+            "DIAGNOSTIC · fp32"
+        )
+        lab_models[title] = f"{landmark}?objects={lab_objects}"
+    # Put the newest lab run first so selecting this CPU runtime loads it by
+    # default; retain every historical/oracle comparison after the run history.
+    return {**lab_models, **models}
+
+
+def discover_monty_models() -> dict[str, str]:
+    model_p = _MONTY_RUN_DIR / "objects.npz"
+    if not model_p.exists():
+        return {}
+    n_ex, n_obj = "?", "?"
+    try:
+        meta = json.loads((_MONTY_RUN_DIR / "meta.json").read_text())
+        objs = meta.get("objects", {})
+        n_ex, n_obj = sum(objs.values()), len(objs)
+    except Exception:
+        pass
+    return {f"monty · {n_ex}ex · 3D-evidence-{n_obj}obj · fp32": str(model_p)}

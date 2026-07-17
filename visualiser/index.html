@@ -411,25 +411,33 @@
       renderSpeech();   // also retires an aged-out bubble between frames
     }, 750);
 
-    // ── pose animation driven by robot_state pose, with command fallback ─────
+    // ── pose animation driven by ROBOT STATE, not command echoes ─────────────
+    // The daemon's robot_state is the ground truth: `pose` is where the robot
+    // is (MOVE integrates yaw into heading, HOME resets it to the origin), and
+    // `joint_state` says whether it is currently trotting (mock sets joints to
+    // 0.5 on TROT, back to 0 on STOP/HOME/MOVE). Rendering eases toward that
+    // state, so every intent reads as a deliberate animation in real time:
+    //   TROT -> bob starts and keeps going until STOP/HOME/MOVE zeroes joints;
+    //   LEFT/RIGHT (held) -> repeated ~5° nudges ease into a continuous turn;
+    //   HOME -> the robot visibly glides back to the start pose.
+    // Stale files can't animate anything: a static pose renders static, and
+    // the bob additionally requires a fresh SSE frame.
     let heading = 0;
+    let posX = 0;
     let bob = 0;
     let lastAnimMs = performance.now();
 
-    function commandedPose() {
+    function statePose() {
       const rs = (latestFrame && latestFrame.robot_state) || {};
-      const cr = (latestFrame && latestFrame.command_result) || {};
-      const lc = rs.last_command || {};
       const pose = rs.pose || {};
-      const intent = cr.intent || lc.intent || 'STOP';
-      const p = lc.params || cr.params || {};
-      const hasPose = Number.isFinite(Number(pose.heading));
+      const js = rs.joint_state || {};
+      const fresh = performance.now() - lastFrameMs < 1500;
+      const trotting = fresh && Object.values(js).some((v) => Math.abs(Number(v) || 0) > 0.05);
       return {
-        active: intent === 'TROT' || intent === 'MOVE',
-        hasPose,
+        hasPose: Number.isFinite(Number(pose.heading)),
         x: Number(pose.x) || 0,
         heading: Number(pose.heading) || 0,
-        yaw: Number(p.yaw) || 0,
+        trotting,
       };
     }
 
@@ -439,11 +447,17 @@
       const dt = Math.min(0.05, (now - lastAnimMs) / 1000);
       lastAnimMs = now;
 
-      const pose = commandedPose();
-      heading = pose.hasPose ? pose.heading : heading + pose.yaw * dt * 1.6;
+      const target = statePose();
+      if (target.hasPose) {
+        // ease toward the daemon's pose (~250ms) — a 5° turn nudge or a HOME
+        // reset becomes a visible, deliberate motion instead of a snap
+        const k = Math.min(1, dt * 5);
+        heading += (target.heading - heading) * k;
+        posX += (target.x * 2.0 - posX) * k;
+      }
       robotPivot.rotation.y = heading;
-      robotPivot.position.x = pose.hasPose ? pose.x * 2.0 : 0;
-      const targetBob = pose.active ? 0.18 + Math.sin(now * 0.012) * 0.16 : 0;
+      robotPivot.position.x = posX;
+      const targetBob = target.trotting ? 0.18 + Math.sin(now * 0.012) * 0.16 : 0;
       bob += (targetBob - bob) * 0.12;           // ease in/out of the trot bob
       robotPivot.position.y = restY + bob;
 
